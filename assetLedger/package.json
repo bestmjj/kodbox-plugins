@@ -2,7 +2,7 @@
   "id": "assetLedger",
   "name": "数字资产中心",
   "title": "数字资产中心 · Asset Ledger",
-  "version": "1.0.0",
+  "version": "1.0.1",
   "category": "tools",
   "source": {
     "className": "font-icon ri-stack-line bg-blue-7"
@@ -16,7 +16,9 @@
   "configItem": {
     "pluginAuth": {
       "type": "userSelect",
-      "value": {"user": "1"},
+      "value": {
+        "user": "1"
+      },
       "display": "访问权限（推荐仅管理员）",
       "desc": "本插件后端始终检查系统管理员权限，即使这里选择其他用户也无法开放访问。",
       "className": "hidden",
