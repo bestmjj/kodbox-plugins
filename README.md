@@ -4,7 +4,7 @@
 
 ## 下载插件
 
-- [数字资产中心 assetLedger v1.1.0](https://github.com/bestmjj/kodbox-plugins/releases/download/assetLedger-v1.1.0/assetLedger-v1.1.0.zip)
+- [数字资产中心 assetLedger v1.1.1](https://github.com/bestmjj/kodbox-plugins/releases/download/assetLedger-v1.1.1/assetLedger-v1.1.1.zip)
 - [AI 智能检索 aiRagLite v0.3.5](https://github.com/bestmjj/kodbox-plugins/releases/download/aiRagLite-v0.3.5/aiRagLite-v0.3.5.zip)
 - [查看所有版本](https://github.com/bestmjj/kodbox-plugins/releases)
 
