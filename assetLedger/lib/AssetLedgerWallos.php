@@ -20,7 +20,7 @@ class AssetLedgerWallos {
 
     public static function normalizeUrl($url) {
         $url = rtrim(trim((string)$url), '/');
-        if (strlen($url) > 400 || !$url || preg_match('/[\\x00-\\x20\\x7f]/', $url)) {
+        if (strlen($url) > 400 || !$url || preg_match('/[\x00-\x20\x7f]/', $url)) {
             throw new InvalidArgumentException('请输入有效的 Wallos 服务地址');
         }
         $parsed = parse_url($url);
@@ -58,7 +58,7 @@ class AssetLedgerWallos {
         $old = $this->readSecret();
         $apiKey = trim((string)$apiKey);
         if (!$apiKey) $apiKey = $old['apiKey'];
-        if (!$apiKey || strlen($apiKey) > 256 || preg_match('/[\\r\\n]/', $apiKey)) {
+        if (!$apiKey || strlen($apiKey) > 256 || preg_match('/[\r\n]/', $apiKey)) {
             throw new InvalidArgumentException('请填写有效的 Wallos API Key（留空表示保留已保存的 Key）');
         }
         $content = self::PREFIX . json_encode(array('url'=>$url, 'apiKey'=>$apiKey), JSON_UNESCAPED_SLASHES);
