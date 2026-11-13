@@ -152,6 +152,7 @@ kodReady.push(function () {
     var choose = $('<button type="button" class="alw-primary" id="airaglite-writer-picker-use">使用此文件夹</button>').appendTo(pickerFoot);
 
     var selected = 'AI草稿';
+    var chosenFromPicker = false;
     var browsing = '';
     var folderRequestId = 0;
     var generationId = 0;
@@ -221,12 +222,14 @@ kodReady.push(function () {
         browsing = relative;
         pickerPathText.text(folderName(relative));
         up.prop('disabled', !relative);
+        choose.prop('disabled', true);
         pickerList.empty().append($('<div class="alw-picker-muted"></div>').text('正在读取当前账号可访问的文件夹……'));
         request('writerFolders', {folder:relative}, function (data) {
             if (id !== folderRequestId) return;
             browsing = String(data.folder || '');
             pickerPathText.text(folderName(browsing));
             up.prop('disabled', !browsing);
+            choose.prop('disabled', false);
             pickerList.empty();
             var items = Array.isArray(data.folders) ? data.folders : [];
             if (!items.length) {
@@ -247,7 +250,7 @@ kodReady.push(function () {
     function openPicker() {
         picker.css('display', 'flex');
         // The default AI草稿 directory may not exist yet; only create it on save.
-        browse('');
+        browse(chosenFromPicker ? selected : '');
     }
     function openSaved() {
         if (!lastRoute || !/^#fileView&path=.{1,4900}$/.test(lastRoute)) return;
@@ -274,7 +277,9 @@ kodReady.push(function () {
         browse(parts.join('/'));
     });
     choose.on('click', function () {
+        if (choose.prop('disabled')) return;
         selected = browsing;
+        chosenFromPicker = true;
         updateFolder();
         closePicker();
         info('保存位置已选择：' + folderName(selected));
