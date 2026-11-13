@@ -1,4 +1,4 @@
-# aiRagLite V0.5.0 — AI 写文档
+# aiRagLite V0.5.x — AI 写文档
 
 在现有 KodBox aiRagLite 上增加“生成草稿 → 预览与编辑 → 确认保存到指定文件夹”。
 
@@ -10,9 +10,13 @@
 - Word 使用 python-docx 生成真实 .docx；支持标题、加粗、列表和基础 Markdown 表格。
 - 目前只供 KodBox 管理员使用；并非企业版全部 AI 智能体功能。
 
+## 版本说明
+
+**V0.5.1 只修改 KodBox 插件界面。** 已成功安装 V0.5.0 写作后端的用户只需要替换插件文件，不必重新构建 `rag-api`。新用户仍须同时安装插件与此后端扩展。
+
 ## 部署
 
-1. 更新 KodBox 里的 aiRagLite 插件到 V0.5.0。
+1. 更新 KodBox 里的 aiRagLite 插件到 V0.5.1。
 2. 同步本仓库并安装新增 RAG 后端功能：
 
 ~~~sh
