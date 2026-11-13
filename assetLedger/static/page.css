@@ -26,3 +26,13 @@
 .legacy-ref label{margin-top:12px}
 .legacy-ref .hint{margin-top:6px}
 @media(max-width:780px){.integration-card{padding:13px}.integration-title,.integration-hint{align-items:flex-start;flex-wrap:wrap}}
+/* v1.1.2: input-to-filter search on the subscription and relation pickers. */
+.searchable-picker{display:flex;flex-direction:column;gap:8px;margin-top:7px}
+.searchable-picker input,.searchable-picker select{width:100%!important;margin-top:0!important}
+.searchable-picker input[type="search"],.relation-picker input[type="search"]{background:#fbfdff}
+.relation-picker input[type="search"]{grid-column:1 / -1;margin-top:0!important}
+.relation-picker{margin-top:10px}
+.relation-picker select{width:100%;min-width:0}
+#relationChips{margin-top:11px}
+#relationHint{margin-top:8px}
+#wallosPickerHint{margin-top:9px}
