@@ -76,8 +76,8 @@ assert.match(one('#airaglite-writer-preview').text(),/测试文档/);
 assert.equal(one('#airaglite-writer-editor').val(),'# 测试文档\n\n测试正文');
 assert.equal(one('.alw-generate').prop('disabled'),false);
 
-one('.alw-tab').trigger('click');
-assert.equal(one('#airaglite-writer-editor').css('display'),'block');
+$('.alw-tab').eq(0).trigger('click');
+assert.notEqual(one('#airaglite-writer-editor').css('display'),'none');
 one('#airaglite-writer-editor').val('# 修改后的内容').trigger('input');
 $('.alw-tab').eq(1).trigger('click');
 assert.match(one('#airaglite-writer-preview').text(),/修改后的内容/);
