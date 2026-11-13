@@ -51,7 +51,20 @@ class assetLedgerPlugin extends PluginBase {
         require_once($this->pluginPath . 'lib/AssetLedgerStore.php');
         try {
             $store = new AssetLedgerStore(USER_SYSTEM . 'assetLedger/');
+            $wallos = null;
+            if (in_array($op, array('wallosConfig','wallosSaveConfig','wallosClearConfig','wallosList'), true)) {
+                require_once($this->pluginPath . 'lib/AssetLedgerWallos.php');
+                $wallos = new AssetLedgerWallos(USER_SYSTEM . 'assetLedger/');
+            }
             switch ($op) {
+                case 'wallosConfig': $result = $wallos->getPublicConfig(); break;
+                case 'wallosSaveConfig':
+                    $result = $wallos->saveConfig(
+                        isset($input['url']) ? $input['url'] : '',
+                        isset($input['apiKey']) ? $input['apiKey'] : ''
+                    ); break;
+                case 'wallosClearConfig': $result = $wallos->clearConfig(); break;
+                case 'wallosList': $result = $wallos->listSubscriptions(); break;
                 case 'list':       $result = $store->all(); break;
                 case 'save':       $result = $store->save(isset($input['record'])?$input['record']:null); break;
                 case 'remove':     $result = $store->remove(isset($input['id'])?$input['id']:null); break;
