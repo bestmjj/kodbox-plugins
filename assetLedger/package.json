@@ -2,12 +2,12 @@
   "id": "assetLedger",
   "name": "数字资产中心",
   "title": "数字资产中心 · Asset Ledger",
-  "version": "1.1.1",
+  "version": "1.1.2",
   "category": "tools",
   "source": {
     "className": "font-icon ri-stack-line bg-blue-7"
   },
-  "description": "Kodbox 数字资产中心：资产登记与复制、Wallos 只读订阅关联、Bitwarden 条目直达链接、自定义字段及 JSON 导入导出。仅管理员访问。",
+  "description": "Kodbox 数字资产中心：双向一致的资产关联、可搜索的 Wallos 订阅与资产选择、资产复制、Bitwarden 直达引用及 JSON 导入导出。",
   "keywords": "数字资产,服务器,域名,CMDB,台账,关联",
   "auther": {
     "copyright": "Personal Asset Ledger",

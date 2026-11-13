@@ -11,7 +11,7 @@
 <body>
 <div class="app" id="app">
   <header class="topbar">
-    <div class="brand"><div class="logo">◇</div><div><h1>数字资产中心 <span class="version">v1.1.1</span></h1><p>记录、查找、关联你的 VPS、域名、站点、账号与数字权益</p></div></div>
+    <div class="brand"><div class="logo">◇</div><div><h1>数字资产中心 <span class="version">v1.1.2</span></h1><p>记录、查找、关联你的 VPS、域名、站点、账号与数字权益</p></div></div>
     <div class="top-actions">
       <button id="wallosBtn" type="button" class="btn subtle">Wallos 设置</button>
       <button id="typesBtn" type="button" class="btn subtle">资产类型</button>
@@ -77,7 +77,11 @@
         </div>
         <div class="integration-card">
           <div class="integration-title"><strong>Wallos · 订阅费用</strong><button class="btn tiny" type="button" id="refreshWallosBtn">刷新列表</button></div>
-          <label>选择 Wallos 订阅<select id="assetWallosId" aria-label="选择 Wallos 订阅"><option value="">不关联订阅</option></select></label>
+          <label>选择 Wallos 订阅</label>
+          <div class="searchable-picker">
+            <input id="wallosSearch" type="search" placeholder="输入订阅名称、编号或金额搜索…" autocomplete="off" aria-label="搜索 Wallos 订阅">
+            <select id="assetWallosId" aria-label="Wallos 订阅搜索结果"><option value="">不关联订阅</option></select>
+          </div>
           <p class="hint" id="wallosPickerHint">先在页面顶部 Wallos 设置中连接。无需再填写订阅名称或链接。</p>
           <details class="legacy-ref" id="legacyWallosBox" hidden>
             <summary>历史 Wallos 文本备注（旧版兼容）</summary>
@@ -86,7 +90,15 @@
           </details>
         </div>
       </div>
-      <div class="subsection"><div class="subsection-heading"><strong>关联其他资产</strong><span class="hint">可同时看到反向关联</span></div><div class="relation-picker"><select id="relationSelect"><option value="">选择要关联的资产…</option></select><button type="button" class="btn subtle" id="addRelation">添加</button></div><div id="relationChips" class="chips"></div></div>
+      <div class="subsection"><div class="subsection-heading"><strong>关联其他资产</strong><span class="hint">支持从任一端添加 / 取消</span></div>
+        <div class="relation-picker">
+          <input id="relationSearch" type="search" placeholder="输入资产名称、类型、平台或 IP 搜索…" autocomplete="off" aria-label="搜索可关联资产">
+          <select id="relationSelect" aria-label="可关联资产的搜索结果"><option value="">选择要关联的资产…</option></select>
+          <button type="button" class="btn subtle" id="addRelation">添加</button>
+        </div>
+        <p class="hint" id="relationHint">添加或移除后，点击下方「保存资产」才会生效；关联会同时更新双方。</p>
+        <div id="relationChips" class="chips"></div>
+      </div>
     </div>
     <div class="modal-foot"><button type="button" class="btn subtle" data-close-modal>取消</button><button id="saveBtn" class="btn primary" type="submit">保存资产</button></div>
   </form>

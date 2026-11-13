@@ -28,6 +28,8 @@ jobs:
           find assetLedger aiRagLite -type f -name '*.js' -print0 | xargs -0 -n1 node --check
       - name: Asset store tests
         run: php assetLedger/tests/test_store.php
+      - name: Relation consistency regression tests
+        run: php assetLedger/tests/test_relations.php
       - name: Wallos configuration tests
         run: php assetLedger/tests/test_wallos_config.php
       - name: Asset form UI contract tests

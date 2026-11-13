@@ -190,21 +190,50 @@ function addField(k,v){
     del.type='button';del.title='删除字段';del.addEventListener('click',function(){row.remove();});
     row.append(key,value,del);$('extraFields').appendChild(row);
 }
+function relationSearchText(item) {
+    return [item.name, item.provider, typeLabel(item.type), item.address, item.url, item.id].join(' ').toLowerCase();
+}
 function renderRelationPicker(){
-    var picker=$('relationSelect');reset(picker);picker.appendChild(new Option('选择要关联的资产…',''));
-    state.data.records.filter(function(x){return x.id!==state.editing;}).sort(function(a,b){return a.name.localeCompare(b.name);}).forEach(function(item){
-        picker.appendChild(new Option(item.name+' · '+typeLabel(item.type),item.id));
+    var q=$('relationSearch').value.trim().toLowerCase();
+    var picker=$('relationSelect');
+    reset(picker);
+    var matches=state.data.records.filter(function(x){
+        return x.id!==state.editing && state.rels.indexOf(x.id)===-1 &&
+            (!q || relationSearchText(x).indexOf(q)!==-1);
+    }).sort(function(a,b){return a.name.localeCompare(b.name);});
+    picker.appendChild(new Option(matches.length ? '选择匹配的资产…' : '没有匹配的资产',''));
+    matches.forEach(function(item){
+        picker.appendChild(new Option(item.name+' · '+typeLabel(item.type)+(item.provider?' · '+item.provider:''),item.id));
     });
     var chips=$('relationChips');reset(chips);
     state.rels.filter(function(id){return byId(id);}).forEach(function(id){
-        var item=byId(id), c=node('span','chip');c.appendChild(node('span','',item.name));
-        var b=node('button','', '×');b.type='button';b.title='取消关联';b.addEventListener('click',function(){state.rels=state.rels.filter(function(x){return x!==id;});renderRelationPicker();});
+        var item=byId(id), c=node('span','chip');
+        c.appendChild(node('span','',item.name));
+        var b=node('button','', '×');b.type='button';b.title='取消关联 '+item.name;
+        b.setAttribute('aria-label','取消关联 '+item.name);
+        b.addEventListener('click',function(){
+            state.rels=state.rels.filter(function(x){return x!==id;});
+            renderRelationPicker();
+        });
         c.appendChild(b);chips.appendChild(c);
     });
+    $('relationHint').textContent='可选 '+matches.length+' 项 · 已选 '+state.rels.length+' 项。变更后请点击「保存资产」，关联会同时更新两端。';
+}
+function addSelectedRelation() {
+    var id=$('relationSelect').value;
+    if(!id || !byId(id))return toast('请先从搜索结果中选中资产',true);
+    if(state.rels.indexOf(id)===-1) state.rels.push(id);
+    $('relationSearch').value='';
+    renderRelationPicker();
+    $('relationSearch').focus();
 }
 function openEdit(item, isDuplicate) {
     var r=item||{}, isEdit=!!item && !isDuplicate;
-    state.editing=isEdit?item.id:null;state.rels=(item&&item.relations?item.relations:[]).slice();
+    state.editing=isEdit?item.id:null;
+    // Historical imports may have only the reverse edge stored. Show the full
+    // effective relationship set so users can remove an inbound link too.
+    state.rels=isEdit ? getLinks(item).map(function(link){return link.id;}) :
+        (item&&item.relations?item.relations:[]).slice();
     state.editingWallosId=r.wallosId||'';
     $('modalTitle').textContent=isDuplicate?'复制资产':(isEdit?'编辑资产':'新增资产');
     $('assetId').value=isEdit?(r.id||''):'';$('assetName').value=r.name||'';
@@ -217,7 +246,9 @@ function openEdit(item, isDuplicate) {
     updateVaultLink();
     $('assetTags').value=(r.tags||[]).join(', ');
     reset($('extraFields'));Object.entries(r.attrs||{}).forEach(function(p){addField(p[0],p[1]);});
-    renderRelationPicker();$('assetWallosId').dataset.ready='0';renderWallosPicker();
+    $('relationSearch').value='';
+    $('wallosSearch').value='';
+    renderRelationPicker();renderWallosPicker();
     $('editModal').showModal();$('assetName').focus();
     loadWallos(false).then(renderWallosPicker).catch(function(err){$('wallosPickerHint').textContent=err.message;});
 }
@@ -226,7 +257,7 @@ function collectForm(){
     Object.keys(formFields).forEach(function(k){record[k]=$(formFields[k]).value.trim();});
     record.wallosRef=$('assetWallosRef').value.trim();
     record.tags=$('assetTags').value.split(/[,，、]/).map(function(x){return x.trim();}).filter(Boolean);
-    record.relations=state.rels.slice();record.wallosId=$('assetWallosId').value;record.attrs={};
+    record.relations=state.rels.slice();record.wallosId=state.editingWallosId;record.attrs={};
     Array.from($('extraFields').children).forEach(function(row){var ins=row.querySelectorAll('input'),k=ins[0].value.trim();if(k)record.attrs[k]=ins[1].value.trim();});
     return record;
 }
@@ -277,20 +308,27 @@ function wallosLabel(item) {
 }
 function renderWallosPicker(){
     var select=$('assetWallosId');
-    var chosen=select.dataset.ready==='1' ? select.value : state.editingWallosId;
+    var chosen=state.editingWallosId||'';
+    var all=state.wallosItems||[];
+    var q=$('wallosSearch').value.trim().toLowerCase();
+    var matches=all.filter(function(item){
+        return !q || [item.name,item.id,item.price,item.currency,item.nextPayment].join(' ').toLowerCase().indexOf(q)!==-1;
+    }).sort(function(a,b){return a.name.localeCompare(b.name);});
     reset(select);
     select.appendChild(new Option('不关联 Wallos 订阅',''));
-    (state.wallosItems||[]).forEach(function(item) {
-        select.appendChild(new Option(wallosLabel(item), item.id));
-    });
-    if(chosen && !(state.wallosItems||[]).some(function(item){return item.id===chosen;})) {
-        select.appendChild(new Option('已关联订阅 ID '+chosen+'（当前列表未找到）',chosen));
+    matches.forEach(function(item){select.appendChild(new Option(wallosLabel(item),item.id));});
+    // Preserve the selected ID even when filtering hides its normal option.
+    // Never accidentally clear an existing subscription when typing a query.
+    if (chosen && !matches.some(function(item){return item.id===chosen;})) {
+        var current=all.find(function(item){return item.id===chosen;});
+        select.appendChild(new Option((current?'当前已选：'+wallosLabel(current):'已关联订阅 ID '+chosen+'（当前列表未找到）'),chosen));
     }
-    select.value=chosen||'';
-    select.dataset.ready='1';
-    $('wallosPickerHint').textContent=state.wallosItems===null
-        ? '请先在顶部 Wallos 设置中配置连接。旧的手动 Wallos 备注仍会保留。'
-        : '已读取 '+state.wallosItems.length+' 项 Wallos 订阅。选择后只保存订阅 ID，不复制费用数据。';
+    select.value=chosen;
+    if(state.wallosItems===null) {
+        $('wallosPickerHint').textContent='请先在顶部 Wallos 设置中连接。已有订阅 ID 会继续保留。';
+    } else {
+        $('wallosPickerHint').textContent='已读取 '+all.length+' 项，搜索匹配 '+matches.length+' 项。选择后只保存订阅 ID，不复制费用数据。';
+    }
 }
 async function loadWallos(force) {
     if (!force && state.wallosItems!==null && (Date.now()-state.wallosFetchedAt < 60000)) {
@@ -369,7 +407,25 @@ function wire(){
     $('assetVaultRef').addEventListener('input',updateVaultLink);
     Array.from(document.querySelectorAll('[data-close-modal]')).forEach(function(b){b.addEventListener('click',function(){$('editModal').close();});});
     $('addField').addEventListener('click',function(){addField('','');});
-    $('addRelation').addEventListener('click',function(){var id=$('relationSelect').value;if(!id)return;if(state.rels.indexOf(id)<0)state.rels.push(id);renderRelationPicker();});
+    $('addRelation').addEventListener('click',addSelectedRelation);
+    $('relationSearch').addEventListener('input',renderRelationPicker);
+    $('relationSearch').addEventListener('keydown',function(e){
+        if(e.key==='Enter'){
+            e.preventDefault();
+            var list=$('relationSelect');
+            if(list.options.length>1){list.selectedIndex=1;addSelectedRelation();}
+        }
+    });
+    $('wallosSearch').addEventListener('input',renderWallosPicker);
+    $('wallosSearch').addEventListener('keydown',function(e){
+        if(e.key==='Enter'){
+            e.preventDefault();
+            var sel=$('assetWallosId');
+            var first=Array.from(sel.options).find(function(opt){return opt.value && opt.value!==state.editingWallosId;});
+            if(first){state.editingWallosId=first.value;renderWallosPicker();}
+        }
+    });
+    $('assetWallosId').addEventListener('change',function(e){state.editingWallosId=e.target.value;renderWallosPicker();});
     $('refreshWallosBtn').addEventListener('click',function(){
         $('wallosPickerHint').textContent='正在刷新订阅…';
         loadWallos(true).then(function(){renderWallosPicker();toast('Wallos 订阅已更新');}).catch(function(err){$('wallosPickerHint').textContent=err.message;toast(err.message,true);});

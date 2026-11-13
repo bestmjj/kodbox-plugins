@@ -190,10 +190,45 @@ class AssetLedgerStore {
                 if (count($data['records']) >= self::MAX_RECORDS) throw new RuntimeException('资产数量已达上限');
                 $id = self::newId();
             }
+            // Legacy records could hold a one-sided edge (A -> B but not B -> A).
+            // If a client omits 'relations' during a partial update, preserve
+            // *both* forward and inbound links. Explicit [] removes the links.
+            if ($existingIndex !== null && is_array($record) && !array_key_exists('relations', $record)) {
+                $links = isset($previous['relations']) && is_array($previous['relations']) ? $previous['relations'] : array();
+                foreach ($data['records'] as $peer) {
+                    if ($peer['id'] !== $id && in_array($id, isset($peer['relations']) ? $peer['relations'] : array(), true)) {
+                        $links[] = $peer['id'];
+                    }
+                }
+                $record['relations'] = array_values(array_unique($links));
+            }
             $item = self::sanitizeRecord($record, $types, $id, $previous);
             $validIds = array();
             foreach ($data['records'] as $r) $validIds[$r['id']] = true;
             $item['relations'] = array_values(array_filter($item['relations'], function($rid) use ($validIds){return isset($validIds[$rid]);}));
+
+            // Treat generic asset relations as undirected and synchronize both
+            // ends atomically under the existing exclusive store lock.
+            $want = array_fill_keys($item['relations'], true);
+            foreach ($data['records'] as &$peer) {
+                if ($peer['id'] === $id) continue;
+                $peerLinks = isset($peer['relations']) && is_array($peer['relations']) ? $peer['relations'] : array();
+                $had = in_array($id, $peerLinks, true);
+                $should = isset($want[$peer['id']]);
+                if ($should && !$had) {
+                    if (count($peerLinks) >= 200) {
+                        throw new RuntimeException('关联数量已达到每项资产 200 个的上限：' . $peer['name']);
+                    }
+                    $peerLinks[] = $id;
+                } elseif (!$should && $had) {
+                    $peerLinks = array_values(array_filter($peerLinks, function($rid) use ($id) {return $rid !== $id;}));
+                } else {
+                    continue;
+                }
+                $peer['relations'] = $peerLinks;
+                $peer['updatedAt'] = gmdate('c');
+            }
+            unset($peer);
             if ($existingIndex === null) $data['records'][] = $item;
             else $data['records'][$existingIndex] = $item;
             return $item;
@@ -313,6 +348,32 @@ class AssetLedgerStore {
                 $record['relations'] = $mapped;
             } unset($record);
             $data['records'] = array_merge($data['records'], $newRecords);
+            // New incoming records may point to old records, and historical
+            // imports may have one-sided links. Unify these references without
+            // deleting any existing relationship. Data stays schemaVersion 1.
+            $index = array();
+            foreach ($data['records'] as $i=>$row) $index[$row['id']] = $i;
+            $edges = array();
+            foreach ($data['records'] as $row) {
+                foreach ((isset($row['relations']) && is_array($row['relations']) ? $row['relations'] : array()) as $rid) {
+                    if ($rid !== $row['id'] && isset($index[$rid])) {
+                        $edges[$row['id'] . "\0" . $rid] = array($row['id'], $rid);
+                    }
+                }
+            }
+            $touch = array();
+            foreach ($edges as $edge) {
+                list($src, $dst) = $edge;
+                $i = $index[$dst];
+                if (!in_array($src, $data['records'][$i]['relations'], true)) {
+                    if (count($data['records'][$i]['relations']) >= 200) {
+                        throw new RuntimeException('导入后资产关联超过 200 个的限制，请先整理关联');
+                    }
+                    $data['records'][$i]['relations'][] = $src;
+                    $touch[$i] = true;
+                }
+            }
+            foreach (array_keys($touch) as $i) $data['records'][$i]['updatedAt'] = gmdate('c');
             return array('added'=>count($newRecords), 'skipped'=>$skipped, 'invalid'=>$invalid,
                          'total'=>count($data['records']));
         });
