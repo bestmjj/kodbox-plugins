@@ -2,12 +2,12 @@
   "id": "assetLedger",
   "name": "数字资产中心",
   "title": "数字资产中心 · Asset Ledger",
-  "version": "1.0.1",
+  "version": "1.1.0",
   "category": "tools",
   "source": {
     "className": "font-icon ri-stack-line bg-blue-7"
   },
-  "description": "为 Kodbox 添加服务器、域名、服务、平台账号和数字权益台账；支持自定义分类、字段、资产关联及 JSON 导入导出。只允许系统管理员访问。",
+  "description": "Kodbox 数字资产中心：登记、复制、关联资产；只读连接 Wallos v5 订阅，支持自定义字段和 JSON 导入导出。仅管理员访问。",
   "keywords": "数字资产,服务器,域名,CMDB,台账,关联",
   "auther": {
     "copyright": "Personal Asset Ledger",

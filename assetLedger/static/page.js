@@ -1,11 +1,11 @@
 (function () {
 'use strict';
 var conf = window.assetLedgerInit || {};
-var state = { data: {schemaVersion:1,types:[],records:[]}, category:'all', filter:'all', reviewOnly:false, search:'', selection:null, editing:null, rels:[], toastTimer:null };
+var state = { data: {schemaVersion:1,types:[],records:[]}, category:'all', filter:'all', reviewOnly:false, search:'', selection:null, editing:null, rels:[], toastTimer:null, wallosItems:null, wallosFetchedAt:0, editingWallosId:'' };
 var $ = function(id) { return document.getElementById(id); };
 var labels = {active:'使用中', draft:'待整理', paused:'暂停', retired:'已归档'};
 var formFields = {provider:'assetProvider',url:'assetUrl',address:'assetAddress',repo:'assetRepo',vaultRef:'assetVaultRef',wallosRef:'assetWallosRef',kodboxRef:'assetKodboxRef',navoneRef:'assetNavoneRef',loginHint:'assetLoginHint',notes:'assetNotes'};
-var detailLabels = {provider:'服务商 / 平台',url:'访问 / 管理地址',address:'IP / 部署位置',repo:'代码仓库',vaultRef:'Bitwarden 引用',wallosRef:'Wallos 引用',kodboxRef:'Kodbox 文档',navoneRef:'NavOne 引用',loginHint:'登录标识',notes:'备注 / 核实事项',source:'资料来源'};
+var detailLabels = {provider:'服务商 / 平台',url:'访问 / 管理地址',address:'IP / 部署位置',repo:'代码仓库',vaultRef:'Bitwarden 引用',wallosRef:'Wallos 旧备注',wallosId:'Wallos 订阅 ID',kodboxRef:'Kodbox 文档',navoneRef:'NavOne 引用',loginHint:'登录标识',notes:'备注 / 核实事项',source:'资料来源'};
 
 function node(tag, cls, txt) {
     var e = document.createElement(tag);
@@ -126,6 +126,31 @@ function renderDetail(){
     if(!links.length)s.appendChild(node('p','muted','尚未建立关联'));
     else {var c=node('div','chips');links.forEach(function(link){var button=node('button','chip click',link.name);button.type='button';button.addEventListener('click',function(){state.selection=link.id;renderRows();renderDetail();});c.appendChild(button);});s.appendChild(c);}
     out.appendChild(s);
+    if (selected.wallosId) {
+        var currentSelection = selected.id;
+        var live = subsection('Wallos 订阅实时信息');
+        live.appendChild(node('p','hint','正在查询 Wallos…'));
+        out.appendChild(live);
+        loadWallos(false).then(function(items) {
+            if (state.selection !== currentSelection) return;
+            reset(live);
+            live.appendChild(node('h3','', 'Wallos 订阅实时信息'));
+            var sub = items.find(function(x){return x.id === selected.wallosId;});
+            if (!sub) {
+                live.appendChild(node('p','hint','当前 Wallos 列表中未找到订阅 ID ' + selected.wallosId + '，请检查关联。'));
+                return;
+            }
+            kv(live,'订阅名称',sub.name);
+            kv(live,'金额',sub.price + ' ' + (sub.currency || ('币种 ID ' + sub.currencyId)));
+            kv(live,'下次付款',sub.nextPayment);
+            kv(live,'状态',sub.inactive ? '已停用' : '使用中');
+        }).catch(function(err){
+            if (state.selection !== currentSelection) return;
+            reset(live);
+            live.appendChild(node('h3','', 'Wallos 订阅实时信息'));
+            live.appendChild(node('p','hint','暂时无法读取 Wallos：' + err.message));
+        });
+    }
     kv(out,'记录更新时间',selected.updatedAt ? selected.updatedAt.replace('T',' ').slice(0,16):'');
 }
 function render(){renderStats();renderCategories();renderRows();renderDetail();}
@@ -152,24 +177,27 @@ function renderRelationPicker(){
         c.appendChild(b);chips.appendChild(c);
     });
 }
-function openEdit(item) {
-    var r=item||{}, isEdit=!!item;
+function openEdit(item, isDuplicate) {
+    var r=item||{}, isEdit=!!item && !isDuplicate;
     state.editing=isEdit?item.id:null;state.rels=(item&&item.relations?item.relations:[]).slice();
-    $('modalTitle').textContent=isEdit?'编辑资产':'新增资产';
-    $('assetId').value=r.id||'';$('assetName').value=r.name||'';
+    state.editingWallosId=r.wallosId||'';
+    $('modalTitle').textContent=isDuplicate?'复制资产':(isEdit?'编辑资产':'新增资产');
+    $('assetId').value=isEdit?(r.id||''):'';$('assetName').value=r.name||'';
     var type=$('assetType');reset(type);state.data.types.forEach(function(t){type.appendChild(new Option(t.name,t.id));});
     type.value=r.type||((state.category!=='all')?state.category:'server');
     $('assetState').value=r.state||'active';$('assetVerification').value=r.verification||'needs_review';
     Object.keys(formFields).forEach(function(k){$(formFields[k]).value=r[k]||'';});
     $('assetTags').value=(r.tags||[]).join(', ');
     reset($('extraFields'));Object.entries(r.attrs||{}).forEach(function(p){addField(p[0],p[1]);});
-    renderRelationPicker();$('editModal').showModal();$('assetName').focus();
+    renderRelationPicker();$('assetWallosId').dataset.ready='0';renderWallosPicker();
+    $('editModal').showModal();$('assetName').focus();
+    loadWallos(false).then(renderWallosPicker).catch(function(err){$('wallosPickerHint').textContent=err.message;});
 }
 function collectForm(){
     var record={id:$('assetId').value,name:$('assetName').value.trim(),type:$('assetType').value,state:$('assetState').value,verification:$('assetVerification').value};
     Object.keys(formFields).forEach(function(k){record[k]=$(formFields[k]).value.trim();});
     record.tags=$('assetTags').value.split(/[,，、]/).map(function(x){return x.trim();}).filter(Boolean);
-    record.relations=state.rels.slice();record.attrs={};
+    record.relations=state.rels.slice();record.wallosId=$('assetWallosId').value;record.attrs={};
     Array.from($('extraFields').children).forEach(function(row){var ins=row.querySelectorAll('input'),k=ins[0].value.trim();if(k)record.attrs[k]=ins[1].value.trim();});
     return record;
 }
@@ -213,12 +241,94 @@ async function importFile(file){
         toast('导入完成：新增 '+result.added+'，跳过 '+result.skipped+'，无效 '+result.invalid);
     }catch(err){toast('导入失败：'+err.message,true);}
 }
+function wallosLabel(item) {
+    return item.name + ' · #' + item.id + ' · ' +
+        (item.price ? item.price + ' ' + (item.currency || '') + ' · ' : '') +
+        (item.nextPayment || '无下次日期');
+}
+function renderWallosPicker(){
+    var select=$('assetWallosId');
+    var chosen=select.dataset.ready==='1' ? select.value : state.editingWallosId;
+    reset(select);
+    select.appendChild(new Option('不关联 Wallos 订阅',''));
+    (state.wallosItems||[]).forEach(function(item) {
+        select.appendChild(new Option(wallosLabel(item), item.id));
+    });
+    if(chosen && !(state.wallosItems||[]).some(function(item){return item.id===chosen;})) {
+        select.appendChild(new Option('已关联订阅 ID '+chosen+'（当前列表未找到）',chosen));
+    }
+    select.value=chosen||'';
+    select.dataset.ready='1';
+    $('wallosPickerHint').textContent=state.wallosItems===null
+        ? '请先在顶部 Wallos 设置中配置连接。旧的手动 Wallos 备注仍会保留。'
+        : '已读取 '+state.wallosItems.length+' 项 Wallos 订阅。选择后只保存订阅 ID，不复制费用数据。';
+}
+async function loadWallos(force) {
+    if (!force && state.wallosItems!==null && (Date.now()-state.wallosFetchedAt < 60000)) {
+        return state.wallosItems;
+    }
+    var result=await api('wallosList',{});
+    if(!Array.isArray(result.subscriptions))throw new Error('Wallos 返回数据缺少 subscriptions');
+    state.wallosItems=result.subscriptions;
+    state.wallosFetchedAt=Date.now();
+    if($('editModal').open)renderWallosPicker();
+    return state.wallosItems;
+}
+async function openWallosSettings(){
+    $('wallosModal').showModal();
+    $('wallosConnectionStatus').textContent='正在读取配置…';
+    try {
+        var cfg=await api('wallosConfig',{});
+        $('wallosUrl').value=cfg.url||'';
+        $('wallosKey').value='';
+        $('wallosConnectionStatus').textContent=cfg.configured?'服务端已保存 API Key（不会显示）':'尚未配置 Wallos API Key';
+    } catch(err) {
+        $('wallosConnectionStatus').textContent='读取配置失败：'+err.message;
+    }
+}
+async function saveWallosSettings(){
+    $('wallosSave').disabled=true;
+    try {
+        var cfg=await api('wallosSaveConfig',{url:$('wallosUrl').value.trim(),apiKey:$('wallosKey').value.trim()});
+        $('wallosKey').value='';
+        state.wallosItems=null;
+        $('wallosConnectionStatus').textContent='配置已保存，正在测试读取…';
+        try {
+            var list=await loadWallos(true);
+            $('wallosConnectionStatus').textContent='连接成功，读取到 '+list.length+' 项订阅';
+            toast('Wallos 已连接：'+list.length+' 项订阅');
+        } catch(err) {
+            $('wallosConnectionStatus').textContent='配置已保存，但读取失败：'+err.message;
+            toast('Wallos 连接测试失败：'+err.message,true);
+        }
+        return cfg;
+    } catch(err) {
+        $('wallosConnectionStatus').textContent='保存失败：'+err.message;
+        toast(err.message,true);
+    } finally {
+        $('wallosSave').disabled=false;
+    }
+}
+
 function wire(){
     $('search').addEventListener('input',function(e){state.search=e.target.value;renderRows();});
     $('stateFilter').addEventListener('change',function(e){state.filter=e.target.value;renderRows();});
     $('reviewOnly').addEventListener('change',function(e){state.reviewOnly=e.target.checked;renderRows();});
     $('addBtn').addEventListener('click',function(){openEdit(null);});
     $('editBtn').addEventListener('click',function(){openEdit(byId(state.selection));});
+    $('duplicateBtn').addEventListener('click',function(){
+        var original=byId(state.selection);
+        if(!original)return;
+        var copy=JSON.parse(JSON.stringify(original));
+        copy.id='';
+        copy.name=original.name+' - 副本';
+        // Do not silently inherit deployment relations or a billing subscription.
+        // The user may deliberately select them again before saving.
+        copy.relations=[];
+        copy.wallosId='';
+        openEdit(copy,true);
+        toast('已复制基本资料；请核对名称、IP、部署路径及关联关系');
+    });
     $('deleteBtn').addEventListener('click',deleteAsset);
     $('closeDetail').addEventListener('click',function(){state.selection=null;renderRows();renderDetail();});
     $('reloadBtn').addEventListener('click',load);
@@ -226,6 +336,33 @@ function wire(){
     Array.from(document.querySelectorAll('[data-close-modal]')).forEach(function(b){b.addEventListener('click',function(){$('editModal').close();});});
     $('addField').addEventListener('click',function(){addField('','');});
     $('addRelation').addEventListener('click',function(){var id=$('relationSelect').value;if(!id)return;if(state.rels.indexOf(id)<0)state.rels.push(id);renderRelationPicker();});
+    $('refreshWallosBtn').addEventListener('click',function(){
+        $('wallosPickerHint').textContent='正在刷新订阅…';
+        loadWallos(true).then(function(){renderWallosPicker();toast('Wallos 订阅已更新');}).catch(function(err){$('wallosPickerHint').textContent=err.message;toast(err.message,true);});
+    });
+    $('wallosBtn').addEventListener('click',openWallosSettings);
+    $('wallosClose').addEventListener('click',function(){$('wallosModal').close();});
+    $('wallosSave').addEventListener('click',saveWallosSettings);
+    $('wallosTest').addEventListener('click',function(){
+        $('wallosConnectionStatus').textContent='正在测试已保存的连接…';
+        loadWallos(true).then(function(list){
+            $('wallosConnectionStatus').textContent='连接成功：'+list.length+' 项订阅';
+            toast('读取成功');
+        }).catch(function(err){
+            $('wallosConnectionStatus').textContent='测试失败：'+err.message;
+            toast(err.message,true);
+        });
+    });
+    $('wallosClear').addEventListener('click',async function(){
+        if(!confirm('断开 Wallos？已建立的订阅 ID 关联会保留，但无法显示费用，直到重新连接。'))return;
+        try{
+            await api('wallosClearConfig',{});
+            state.wallosItems=null;state.wallosFetchedAt=0;
+            $('wallosUrl').value='';$('wallosKey').value='';
+            $('wallosConnectionStatus').textContent='Wallos 已断开';
+            toast('Wallos 连接已清除');
+        }catch(err){toast(err.message,true);}
+    });
     $('importBtn').addEventListener('click',function(){$('importFile').click();});
     $('importFile').addEventListener('change',function(e){importFile(e.target.files[0]);e.target.value='';});
     $('exportBtn').addEventListener('click',exportJson);

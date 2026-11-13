@@ -129,12 +129,16 @@ class AssetLedgerStore {
         if (!in_array($state, array('active','draft','paused','retired'), true)) $state = 'draft';
         $verification = self::txt(isset($record['verification']) ? $record['verification'] : 'needs_review', 30);
         if (!in_array($verification, array('confirmed', 'needs_review'), true)) $verification = 'needs_review';
-        $fields = array('provider','url','address','repo','vaultRef','wallosRef','kodboxRef','navoneRef','loginHint','notes','source');
+        $fields = array('provider','url','address','repo','vaultRef','wallosRef','wallosId','kodboxRef','navoneRef','loginHint','notes','source');
         $out = array('id'=>$id, 'name'=>$name, 'type'=>$type, 'state'=>$state, 'verification'=>$verification);
         foreach ($fields as $field) {
             $limit = $field === 'notes' ? 6000 : 600;
             $inputValue = array_key_exists($field, $record) ? $record[$field] : ($previous && isset($previous[$field]) ? $previous[$field] : '');
             $out[$field] = self::txt($inputValue, $limit);
+        }
+        // Subscription ID is a stable reference; never store a Wallos API key in a record.
+        if ($out['wallosId'] !== '' && !preg_match('/^[0-9]{1,12}$/D', $out['wallosId'])) {
+            throw new InvalidArgumentException('Wallos 订阅 ID 必须是数字');
         }
         $tags = isset($record['tags']) && is_array($record['tags']) ? $record['tags'] : array();
         $out['tags'] = array();

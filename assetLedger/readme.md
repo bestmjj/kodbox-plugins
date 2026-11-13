@@ -1,12 +1,26 @@
-# 数字资产中心（Asset Ledger）v1.0
+# 数字资产中心（Asset Ledger）v1.1
 
 > 适用于 Kodbox 的独立 PHP 插件。记录 VPS、域名、站点、Docker 服务、平台账号、代码仓库、额度/许可证与关联关系。**不需要 NocoDB、新数据库、Redis 或额外容器**。
+
+## v1.1 新功能
+
+- **复制资产**：选中资产 → 右侧详情「复制资产」；复制名称（附加“副本”）、分类、描述、标签、自定义字段和其他基础资料，保存时生成全新的 ID，不修改原资产。为了防止错误引用，原资产的其他资产关联和 Wallos 订阅 ID 不会复制；IP、地址、账号引用等仍需人工核对。
+- **Wallos v5.x 只读关联**（已按 v5.11.1 的实际源码核对）：
+  1. 管理员点击「Wallos 设置」，填写从 Kodbox PHP 所在网络可访问的 Wallos URL（例如 `http://wallos:8282`）和 Wallos 的个人 API Key。
+  2. 保存后自动测试读取，能获取的订阅由该 API Key 对应的 Wallos 用户权限决定。
+  3. 编辑资产，在「关联 Wallos 订阅」下拉框选择对应费用项；保存后只记录稳定的数字订阅 ID。
+  4. 点击资产详情后，按需向 Wallos 只读获取名称、金额、币种、下次付款日期和启用状态（浏览器内缓存约 60 秒）。
+  5. 原来的「关联 Wallos 项」文字备注保留兼容历史导入；不再要求单项订阅详情链接。
+- Wallos API Key 保存在 Kodbox 的 `DATA_PATH/system/assetLedger/wallos-config.php`（权限 0600、PHP 保护头），不进入资产 JSON、不下发给浏览器。插件通过 **POST 表单体**向固定的 Wallos v5.x 只读端点请求，不会把密钥放在 URL 查询字符串。
+- 支持断开连接，断开时移除保存的密钥；资产里已有的 Wallos ID 不删除，以便以后重新连接。
+- 网络限制：若 Wallos 与 Kodbox 在不同主机或容器网络中，必须确保 Kodbox **服务器端**能访问 Wallos 服务。公网请使用 HTTPS 并配置可信证书；HTTP 仅限可信内部网络。
+- Wallos 信息是按需读取（非同步复制、非双向写入），没有订阅详情 URL 的跳转能力，也不会修改 Wallos 金额或状态。
 
 ## 功能
 
 - 管理员登录后，Kodbox 左侧菜单增加「数字资产中心」。
 - 11 种预置资产类型；允许在页面上添加、改名、删除空的自定义类型。
-- 可登记名称、状态、平台、地址、代码仓库、Bitwarden/Wallos/Kodbox/NavOne 引用、标签和备注。
+- 可登记名称、状态、平台、地址、代码仓库、Bitwarden/Kodbox/NavOne 引用、Wallos 订阅 ID、标签和备注。
 - 任意添加键值型自定义字段（CPU、RAM、IP、合同日期、证书等）。
 - 通过 ID 关联任意资产；界面自动显示**反向关系**，例如 VPS 能看到部署于其上的站点。
 - 按类型、状态、待核实状态过滤；快速全文搜索。
@@ -62,6 +76,7 @@ docker exec <kodbox-container> sh -lc 'find /var/www /app -path "*/plugins/admin
 ## 扩展接口与结构
 
 - 数据结构：`schemaVersion: 1`，`types[]`，`records[]`。
+- v1.1 向记录追加可选字段 `wallosId`，兼容旧版本导入/备份；`wallosRef` 仍作为原有文本备注。
 - 资产关键字段：`id/name/type/state/verification/provider/url/address/repo/tags/attrs/relations/vaultRef/wallosRef/kodboxRef/navoneRef/notes/source`。
 - `attrs` 是不限制业务含义的键值字段；新增资产类型不需要修改代码。
 - `relations[]` 是资产 ID 数组，便于未来引入资产依赖关系、风险分析与影响面查询。

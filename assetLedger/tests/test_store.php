@@ -25,7 +25,15 @@ try {
     ok(strpos($type['id'],'custom_')===0,'new custom category');
     $saved=$store->save(array('name'=>'自定义实例','type'=>$type['id'],'state'=>'draft','attrs'=>array('内存'=>'2 GiB'),'relations'=>array('s_netcup')));
     ok($saved['name']==='自定义实例' && $saved['attrs']['内存']==='2 GiB','new record, custom fields');
-    $saved['notes']='再次修改';$new=$store->save($saved);
+    $saved['wallosId']='42';$saved['notes']='再次修改';$new=$store->save($saved);
+    ok($new['wallosId']==='42','Wallos subscription ID persisted');
+    $copy=$new; $copy['id']=''; $copy['name']='自定义实例 - 副本'; $copy['wallosId']=''; $copy['relations']=array();
+    $duplicated=$store->save($copy);
+    ok($duplicated['id']!==$new['id'] && $duplicated['name']!==$new['name'],'duplicate creates distinct asset ID');
+    ok($store->all()['records'][0]['name']!=='' && $store->all()['records'][0]['type']!=='','original assets remain after duplicate');
+    $store->remove($duplicated['id']);
+    $invalid=false;try{$new['wallosId']='not-a-number';$store->save($new);}catch(InvalidArgumentException $e){$invalid=true;}
+    ok($invalid,'reject invalid Wallos subscription ID');
     ok($new['id']===$saved['id']&&$new['notes']==='再次修改','update maintains ID');
     $failed=false;try{$store->removeType($type['id']);}catch(Exception $e){$failed=true;}
     ok($failed,'cannot remove a category containing records');
