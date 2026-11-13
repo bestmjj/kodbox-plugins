@@ -4,8 +4,8 @@ var conf = window.assetLedgerInit || {};
 var state = { data: {schemaVersion:1,types:[],records:[]}, category:'all', filter:'all', reviewOnly:false, search:'', selection:null, editing:null, rels:[], toastTimer:null, wallosItems:null, wallosFetchedAt:0, editingWallosId:'' };
 var $ = function(id) { return document.getElementById(id); };
 var labels = {active:'使用中', draft:'待整理', paused:'暂停', retired:'已归档'};
-var formFields = {provider:'assetProvider',url:'assetUrl',address:'assetAddress',repo:'assetRepo',vaultRef:'assetVaultRef',wallosRef:'assetWallosRef',kodboxRef:'assetKodboxRef',navoneRef:'assetNavoneRef',loginHint:'assetLoginHint',notes:'assetNotes'};
-var detailLabels = {provider:'服务商 / 平台',url:'访问 / 管理地址',address:'IP / 部署位置',repo:'代码仓库',vaultRef:'Bitwarden 引用',wallosRef:'Wallos 旧备注',wallosId:'Wallos 订阅 ID',kodboxRef:'Kodbox 文档',navoneRef:'NavOne 引用',loginHint:'登录标识',notes:'备注 / 核实事项',source:'资料来源'};
+var formFields = {provider:'assetProvider',url:'assetUrl',address:'assetAddress',repo:'assetRepo',vaultRef:'assetVaultRef',vaultUrl:'assetVaultUrl',kodboxRef:'assetKodboxRef',navoneRef:'assetNavoneRef',loginHint:'assetLoginHint',notes:'assetNotes'};
+var detailLabels = {provider:'服务商 / 平台',url:'访问 / 管理地址',address:'IP / 部署位置',repo:'代码仓库',kodboxRef:'Kodbox 文档',navoneRef:'NavOne 引用',loginHint:'登录标识',notes:'备注 / 核实事项',source:'资料来源'};
 
 function node(tag, cls, txt) {
     var e = document.createElement(tag);
@@ -73,7 +73,7 @@ function match(rec){
     if(state.filter!=='all' && rec.state!==state.filter)return false;
     if(state.reviewOnly && known(rec))return false;
     var q=state.search.trim().toLowerCase();if(!q)return true;
-    var content=[rec.name,rec.type,rec.provider,rec.url,rec.address,rec.repo,rec.notes,rec.loginHint,(rec.tags||[]).join(' '),JSON.stringify(rec.attrs||{})].join(' ').toLowerCase();
+    var content=[rec.name,rec.type,rec.provider,rec.url,rec.address,rec.repo,rec.notes,rec.loginHint,rec.vaultRef,rec.vaultUrl,rec.wallosRef,(rec.tags||[]).join(' '),JSON.stringify(rec.attrs||{})].join(' ').toLowerCase();
     return content.indexOf(q)!==-1;
 }
 function assetRow(item){
@@ -111,6 +111,21 @@ function kv(container,key,value){
     r.appendChild(val);container.appendChild(r);
 }
 function subsection(title){var s=node('section','detail-section');s.appendChild(node('h3','',title));return s;}
+function validWebUrl(value) {
+    if(!value || !/^https?:\/\//i.test(value))return '';
+    try {
+        var parsed=new URL(value);
+        if (!['https:','http:'].includes(parsed.protocol) || !parsed.hostname || parsed.username || parsed.password) return '';
+        return parsed.href;
+    }catch(_){return '';}
+}
+function updateVaultLink(){
+    var input=$('assetVaultUrl').value.trim();
+    var fallback=$('assetVaultRef').value.trim();
+    var url=validWebUrl(input)||validWebUrl(fallback);
+    var a=$('openVaultLink'); a.hidden=!url;
+    if(url)a.href=url;else a.removeAttribute('href');
+}
 function renderDetail(){
     var selected=byId(state.selection);var p=$('detail');p.hidden=!selected;
     document.querySelector('.workbench').classList.toggle('with-detail',!!selected);
@@ -119,6 +134,16 @@ function renderDetail(){
     var core=subsection('基本信息');kv(core,'类别',typeLabel(selected.type));kv(core,'状态',labels[selected.state]||selected.state);kv(core,'核实',known(selected)?'已确认':'待核实');
     Object.keys(detailLabels).forEach(function(key){kv(core,detailLabels[key],selected[key]);});
     out.appendChild(core);
+    var vaultLink=validWebUrl(selected.vaultUrl)||validWebUrl(selected.vaultRef);
+    var vaultLabel=validWebUrl(selected.vaultRef)?'':(selected.vaultRef||'');
+    if (vaultLabel || vaultLink || selected.wallosId || selected.wallosRef) {
+        var external=subsection('外部系统关联');
+        if(vaultLabel)kv(external,'Bitwarden 条目',vaultLabel);
+        if(vaultLink)kv(external,'Bitwarden 直达',vaultLink);
+        if(selected.wallosId)kv(external,'Wallos 订阅 ID',selected.wallosId);
+        else if(selected.wallosRef)kv(external,'历史 Wallos 备注',selected.wallosRef);
+        out.appendChild(external);
+    }
     var fields=Object.entries(selected.attrs||{});
     if(fields.length){var s=subsection('扩展字段');fields.forEach(function(p){kv(s,p[0],p[1]);});out.appendChild(s);}
     if((selected.tags||[]).length){var t=subsection('标签'), chips=node('div','chips');selected.tags.forEach(function(tg){chips.appendChild(node('span','chip',tg));});t.appendChild(chips);out.appendChild(t);}
@@ -187,6 +212,9 @@ function openEdit(item, isDuplicate) {
     type.value=r.type||((state.category!=='all')?state.category:'server');
     $('assetState').value=r.state||'active';$('assetVerification').value=r.verification||'needs_review';
     Object.keys(formFields).forEach(function(k){$(formFields[k]).value=r[k]||'';});
+    $('assetWallosRef').value=r.wallosRef||'';
+    $('legacyWallosBox').hidden=!r.wallosRef;
+    updateVaultLink();
     $('assetTags').value=(r.tags||[]).join(', ');
     reset($('extraFields'));Object.entries(r.attrs||{}).forEach(function(p){addField(p[0],p[1]);});
     renderRelationPicker();$('assetWallosId').dataset.ready='0';renderWallosPicker();
@@ -196,6 +224,7 @@ function openEdit(item, isDuplicate) {
 function collectForm(){
     var record={id:$('assetId').value,name:$('assetName').value.trim(),type:$('assetType').value,state:$('assetState').value,verification:$('assetVerification').value};
     Object.keys(formFields).forEach(function(k){record[k]=$(formFields[k]).value.trim();});
+    record.wallosRef=$('assetWallosRef').value.trim();
     record.tags=$('assetTags').value.split(/[,，、]/).map(function(x){return x.trim();}).filter(Boolean);
     record.relations=state.rels.slice();record.wallosId=$('assetWallosId').value;record.attrs={};
     Array.from($('extraFields').children).forEach(function(row){var ins=row.querySelectorAll('input'),k=ins[0].value.trim();if(k)record.attrs[k]=ins[1].value.trim();});
@@ -326,6 +355,9 @@ function wire(){
         // The user may deliberately select them again before saving.
         copy.relations=[];
         copy.wallosId='';
+        copy.wallosRef='';
+        copy.vaultRef='';
+        copy.vaultUrl='';
         openEdit(copy,true);
         toast('已复制基本资料；请核对名称、IP、部署路径及关联关系');
     });
@@ -333,6 +365,8 @@ function wire(){
     $('closeDetail').addEventListener('click',function(){state.selection=null;renderRows();renderDetail();});
     $('reloadBtn').addEventListener('click',load);
     $('editForm').addEventListener('submit',saveForm);
+    $('assetVaultUrl').addEventListener('input',updateVaultLink);
+    $('assetVaultRef').addEventListener('input',updateVaultLink);
     Array.from(document.querySelectorAll('[data-close-modal]')).forEach(function(b){b.addEventListener('click',function(){$('editModal').close();});});
     $('addField').addEventListener('click',function(){addField('','');});
     $('addRelation').addEventListener('click',function(){var id=$('relationSelect').value;if(!id)return;if(state.rels.indexOf(id)<0)state.rels.push(id);renderRelationPicker();});
