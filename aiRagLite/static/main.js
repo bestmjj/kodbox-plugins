@@ -2,7 +2,7 @@ kodReady.push(function () {
     // Render the launcher independently of kodApi: KodBox may expose it later.
     // The PHP hook already restricts this script to administrator sessions.
     var jq = window.jQuery || window.$;
-    window.aiRagLiteDebug = {version:'0.3.5', stage:'start', jquery:!!jq, kodApi:!!window.kodApi};
+    window.aiRagLiteDebug = {version:'0.4.0', stage:'start', jquery:!!jq, kodApi:!!window.kodApi};
     if (!jq) {
         window.aiRagLiteDebug.stage = 'no-jquery';
         return;
@@ -43,17 +43,28 @@ kodReady.push(function () {
       '.airaglite-copy{font-size:12px;color:#64748b;border:0;padding:2px 6px;border-radius:4px;background:#f1f5f9}' +
       '.airaglite-citation{color:#1d5fcc;text-decoration:none;cursor:pointer;font-weight:700;white-space:nowrap}' +
       '.airaglite-sources{border-top:1px solid #bfdbfe;padding-top:10px;margin-top:12px;font-size:12px;color:#475569}' +
-      '.airaglite-sources button{background:none;border:0;color:#1556af;text-decoration:underline;cursor:pointer;padding:3px 5px}';
+      '.airaglite-sources button{background:none;border:0;color:#1556af;text-decoration:underline;cursor:pointer;padding:3px 5px}' +
+      '#airaglite-scope{font-size:13px;border:1px solid #cbd5e1;border-radius:6px;background:white;color:#334155;padding:8px;max-width:220px}' +
+      '.airaglite-examples{display:flex;gap:7px;flex-wrap:wrap;padding:0 22px 10px;font-size:12px;color:#64748b;align-items:center}' +
+      '.airaglite-examples button{border:1px solid #d9e3f2;color:#2b5f9e;border-radius:6px;background:#f8fbff;padding:5px 8px;cursor:pointer}' +
+      '.airaglite-asset-row{padding:11px 2px;border-bottom:1px solid #e2e8f0}' +
+      '.airaglite-asset-title{font-weight:700;color:#224c88}' +
+      '.airaglite-asset-meta{font-size:12px;color:#64748b;margin-top:3px}' +
+      '.airaglite-help{font-size:12px;color:#64748b;padding:0 22px 8px;line-height:1.5}';
     $('head').append($('<style>').text(css));
     var btn = $('<button id="airaglite-open" type="button">🔎 智能检索</button>').appendTo('body');
     window.aiRagLiteDebug.stage = 'mounted';
     window.aiRagLiteOpen = function () { btn.trigger('click'); };
     var layer = $('<div id="airaglite-overlay"></div>').appendTo('body');
     var panel = $('<div id="airaglite-dialog"></div>').appendTo(layer);
-    var head = $('<div id="airaglite-header"><span>搜索 KodBox 文档</span></div>').appendTo(panel);
+    var head = $('<div id="airaglite-header"><span>智能检索 · Kodbox 文档 + 数字资产</span></div>').appendTo(panel);
     $('<button type="button" id="airaglite-close" aria-label="关闭">×</button>').appendTo(head);
     var form = $('<form id="airaglite-form"></form>').appendTo(panel);
-    var query = $('<input id="airaglite-query" type="text" maxlength="300" placeholder="模糊描述、Excel 关键词、错误码……"/>').appendTo(form);
+    var query = $('<input id="airaglite-query" type="text" maxlength="300" placeholder="例如：我的数字资产 / Nuyek 关联了什么 / 文档错误码"/>').appendTo(form);
+    var scope = $('<select id="airaglite-scope" aria-label="选择检索数据源"></select>').appendTo(form);
+    $('<option value="auto">智能选择（资产优先）</option>').appendTo(scope);
+    $('<option value="assets">数字资产（实时）</option>').appendTo(scope);
+    $('<option value="docs">Kodbox 文档（RAG）</option>').appendTo(scope);
     var ask = $('<label style="font-size:13px;align-self:center;cursor:pointer"></label>').appendTo(form);
     var askCheck = $('<input type="checkbox"/>').appendTo(ask);
     ask.append(document.createTextNode(' AI 回答'));
@@ -62,6 +73,15 @@ kodReady.push(function () {
     var statBtn = $('<button type="button" style="border:1px solid #cbd5e1;border-radius:6px;background:white;padding:5px 10px;cursor:pointer">索引状态</button>').appendTo(tools);
     var rescanBtn = $('<button type="button" style="border:1px solid #cbd5e1;border-radius:6px;background:white;padding:5px 10px;cursor:pointer">立即对账</button>').appendTo(tools);
     var statusLine = $('<span style="font-size:12px;color:#64748b"></span>').appendTo(tools);
+    $('<div class="airaglite-help">数字资产查询读取 AssetLedger 实时台账，不发送给文档 AI；切换“文档”才检索现有文件索引。</div>').appendTo(panel);
+    var quick = $('<div class="airaglite-examples"><span>试试：</span></div>').appendTo(panel);
+    ['我的数字资产有哪些','哪些资产待核实','Nuyek 关联哪些资产','下线 Netcup 可能影响什么'].forEach(function(sample){
+        $('<button type="button"></button>').text(sample).appendTo(quick).on('click',function(){
+            scope.val('assets');
+            query.val(sample);
+            form.trigger('submit');
+        });
+    });
     var openMessage = $('<div id="airaglite-open-message" role="alert"></div>').appendTo(panel);
     function openNotice(message, isError) {
         openMessage.text(message || '').css({display:'block',color:isError ? '#991b1b' : '#14532d',background:isError ? '#fff1f2' : '#f0fdf4',borderColor:isError ? '#fecaca' : '#bbf7d0'});
@@ -364,9 +384,29 @@ kodReady.push(function () {
                 });
             }
         }
-        if (data.mode) $('<p></p>').text('检索模式：' + (data.mode === 'hybrid' ? '关键词 + 语义' : '关键词')).appendTo(results);
+        if (data.mode) $('<p></p>').text('检索模式：' + (data.mode === 'asset_live' ? 'AssetLedger 实时资产查询（不调用文档 RAG）' : (data.mode === 'hybrid' ? '关键词 + 语义' : '关键词'))).appendTo(results);
         if (data.note) $('<p></p>').text(data.note).appendTo(results);
         var hits = Array.isArray(data.results) ? data.results : [];
+        if (data.sourceType === 'assets') {
+            if (hits.length) $('<h3 style="font-size:14px;margin:14px 0 6px"></h3>').text('涉及的登记资产 ('+hits.length+')').appendTo(results);
+            hits.forEach(function (asset) {
+                var row = $('<div class="airaglite-asset-row"></div>').appendTo(results);
+                $('<div class="airaglite-asset-title"></div>').text(asset.name || asset.id).appendTo(row);
+                $('<div class="airaglite-asset-meta"></div>')
+                    .text((asset.type || '其他') + ' · ' + (asset.provider || '平台未填写') +
+                        ' · ' + (asset.status || '状态未填写') + ' · 关联 ' + (asset.relatedCount || 0) + ' 项')
+                    .appendTo(row);
+                $('<button type="button" class="airaglite-copy">复制资产名称</button>')
+                    .appendTo(row).on('click', function(){
+                        var v=String(asset.name||'');
+                        if(navigator.clipboard && navigator.clipboard.writeText){
+                            navigator.clipboard.writeText(v).catch(function(){window.prompt('复制资产名称：',v);});
+                        } else window.prompt('复制资产名称：',v);
+                    });
+            });
+            if (!hits.length) $('<p style="font-size:12px;color:#64748b"></p>').text('这是台账统计或汇总，不代表自动扫描了你的服务器。').appendTo(results);
+            return;
+        }
         if (!hits.length) { $('<p>没有找到匹配文件。可尝试更短的关键词。</p>').appendTo(results); return; }
         hits.forEach(function (hit, index) {
             var item = $('<div class="airaglite-item"></div>').appendTo(results);
@@ -390,7 +430,7 @@ kodReady.push(function () {
         var q = query.val().trim();
         if (q.length < 2) { status('至少输入两个字符'); return; }
         status('正在查找资料并整理结果……'); submit.prop('disabled', true);
-        var route = 'plugin/aiRagLite/' + (askCheck.prop('checked') ? 'ask' : 'search');
+        var route = 'plugin/aiRagLite/smart';
         var api = window.kodApi;
         if (!api || typeof api.requestSend !== 'function') {
             submit.prop('disabled', false);
@@ -398,7 +438,7 @@ kodReady.push(function () {
             return;
         }
         try {
-            api.requestSend(route, {q: q}, function (response) {
+            api.requestSend(route, {q: q, scope: scope.val(), ai: askCheck.prop('checked') ? '1' : '0'}, function (response) {
                 submit.prop('disabled', false);
                 if (!response || response.code === false) {
                     status(response && response.data ? String(response.data) : '请求失败'); return;
