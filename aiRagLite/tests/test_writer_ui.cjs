@@ -63,13 +63,61 @@ one('#airaglite-writer-selected');
 one('#airaglite-writer-picker');
 one('#airaglite-writer-picker-use');
 const css=one('#airaglite-writer-styles').text();
-assert.match(css,/grid-template-columns:minmax\(270px,330px\) minmax\(0,1fr\)/);
+assert.match(css,/grid-template-columns:minmax\(0,var\(--alw-sidebar-width,330px\)\) 12px minmax\(0,1fr\)/);
 assert.match(css,/@media\(max-width:850px\)/);
 assert.match(css,/@media\(max-width:560px\)/);
+
+// jsdom does not run layout. Stub the visible column container geometry.
+const columns=one('#airaglite-writer-body')[0];
+columns.getBoundingClientRect=()=>({
+  left:50,top:0,right:1050,bottom:650,width:1000,height:650
+});
+const divider=one('#airaglite-writer-splitter')[0];
+assert.equal(divider.getAttribute('role'),'separator');
+assert.equal(divider.getAttribute('aria-orientation'),'vertical');
 
 one('#airaglite-writer-open').trigger('click');
 assert.equal(one('#airaglite-writer-overlay').css('display'),'flex');
 assert.equal(one('.alw-tab[aria-selected="true"]').text(),'预览排版');
+
+function paneWidth() {
+  return Number.parseInt(columns.style.getPropertyValue('--alw-sidebar-width'),10);
+}
+assert.equal(paneWidth(),330,'default column size');
+one('#airaglite-writer-left-wide').trigger('click');
+assert.equal(paneWidth(),540,'left wide preset');
+one('#airaglite-writer-right-wide').trigger('click');
+assert.equal(paneWidth(),270,'right wide preset');
+divider.dispatchEvent(new win.KeyboardEvent('keydown',{key:'ArrowRight',bubbles:true,cancelable:true}));
+assert.equal(paneWidth(),290,'keyboard increases left width');
+divider.dispatchEvent(new win.KeyboardEvent('keydown',{key:'Home',bubbles:true,cancelable:true}));
+assert.equal(paneWidth(),260,'keyboard Home clamps to minimum');
+divider.dispatchEvent(new win.KeyboardEvent('keydown',{key:'End',bubbles:true,cancelable:true}));
+assert.equal(paneWidth(),668,'keyboard End clamps for minimum right pane');
+one('#airaglite-writer-reset-wide').trigger('click');
+assert.equal(paneWidth(),330,'reset button');
+divider.dispatchEvent(new win.MouseEvent('pointerdown',{clientX:400,button:0,bubbles:true,cancelable:true}));
+win.document.dispatchEvent(new win.MouseEvent('pointermove',{clientX:490,bubbles:true}));
+assert.equal(paneWidth(),420,'drag right should widen sidebar');
+win.document.dispatchEvent(new win.MouseEvent('pointermove',{clientX:2500,bubbles:true}));
+assert.equal(paneWidth(),668,'drag must not shrink right below minimum');
+win.document.dispatchEvent(new win.MouseEvent('pointermove',{clientX:-200,bubbles:true}));
+assert.equal(paneWidth(),260,'drag must not shrink left below minimum');
+win.document.dispatchEvent(new win.MouseEvent('pointerup',{bubbles:true}));
+win.document.dispatchEvent(new win.MouseEvent('pointermove',{clientX:1000,bubbles:true}));
+assert.equal(paneWidth(),260,'movement after pointerup ignored');
+one('#airaglite-writer-splitter').trigger('dblclick');
+assert.equal(paneWidth(),330,'double click resets split');
+assert.equal(divider.getAttribute('aria-valuenow'),'33','accessible slider value');
+
+// Narrow screens use single-column layout; drag must not modify widths.
+Object.defineProperty(win,'innerWidth',{value:800,writable:true,configurable:true});
+divider.dispatchEvent(new win.MouseEvent('pointerdown',{clientX:400,button:0,bubbles:true}));
+win.document.dispatchEvent(new win.MouseEvent('pointermove',{clientX:750,bubbles:true}));
+win.document.dispatchEvent(new win.MouseEvent('pointerup',{bubbles:true}));
+assert.equal(paneWidth(),330,'narrow screen disables drag');
+win.innerWidth=1024;
+
 one('#airaglite-writer-topic').val('测试文档');
 one('.alw-generate').trigger('click');
 assert.match(one('#airaglite-writer-preview').text(),/测试文档/);
@@ -113,4 +161,4 @@ assert.match(one('#airaglite-writer-message').text(),/测试生成错误/);
 assert.equal(one('.alw-generate').prop('disabled'),false,'error must reenable generate');
 
 dom.window.close();
-console.log('OK: writer layout tabs, preview, picker selection/cancel, save and error recovery');
+console.log('OK: writer pane resizing, presets, keyboard, narrow screen, tabs, picker and save');

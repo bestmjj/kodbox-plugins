@@ -17,8 +17,16 @@ kodReady.push(function () {
       '.alw-heading strong{font-size:18px;line-height:1.35}',
       '.alw-muted{color:#64748b;font-size:12px;line-height:1.5}',
       '.alw-close{border:1px solid #cbd5e1;background:#fff;border-radius:7px;padding:7px 12px;color:#334155;white-space:nowrap}',
-      '#airaglite-writer-body{display:grid;grid-template-columns:minmax(270px,330px) minmax(0,1fr);flex:1;min-height:0;overflow:hidden}',
-      '.alw-sidebar{min-width:0;min-height:0;overflow-y:auto;padding:20px;border-right:1px solid #e2e8f0;background:#f8fafc}',
+      '#airaglite-writer-body{display:grid;grid-template-columns:minmax(0,var(--alw-sidebar-width,330px)) 12px minmax(0,1fr);flex:1;min-height:0;overflow:hidden}',
+      '.alw-sidebar{min-width:0;min-height:0;overflow-y:auto;padding:20px;background:#f8fafc}',
+      '.alw-width-tools{margin-left:auto;display:flex;gap:6px;align-items:center;flex-wrap:wrap}',
+      '.alw-width-tools button{background:#f8fafc;border:1px solid #cbd5e1;color:#334155;padding:6px 9px;border-radius:6px;font-size:12px;white-space:nowrap}',
+      '.alw-width-tools button:hover{background:#eaf3ff;color:#1754ac;border-color:#93b6e4}',
+      '#airaglite-writer-splitter{position:relative;cursor:col-resize;touch-action:none;background:#e2e8f0;outline-offset:-3px;z-index:2}',
+      '#airaglite-writer-splitter::before{content:"";position:absolute;left:5px;top:calc(50% - 28px);width:2px;height:56px;background:#94a3b8;border-radius:4px}',
+      '#airaglite-writer-splitter:hover,#airaglite-writer-splitter:focus-visible{background:#bfd7f3}',
+      '#airaglite-writer-splitter:hover::before,#airaglite-writer-splitter:focus-visible::before{background:#2563eb}',
+      '#airaglite-writer-dialog.alw-dragging,#airaglite-writer-dialog.alw-dragging *{cursor:col-resize!important;user-select:none!important}',
       '.alw-label{display:block;font-weight:650;font-size:13px;margin-bottom:7px;color:#334155}',
       '.alw-field{margin:0 0 18px}',
       '.alw-field input,.alw-field textarea{display:block;width:100%;border:1px solid #cbd5e1;border-radius:7px;padding:10px 11px;font:inherit;line-height:1.5;background:#fff;color:#1e293b;outline-offset:2px}',
@@ -77,7 +85,7 @@ kodReady.push(function () {
       '.alw-picker-muted{padding:18px;color:#64748b;font-size:13px;line-height:1.6}',
       '.alw-picker-footer{display:flex;justify-content:space-between;align-items:center;gap:12px;padding:14px 18px;border-top:1px solid #e2e8f0;flex-wrap:wrap}',
       '.alw-picker-footer .alw-secondary:disabled{opacity:.5;cursor:default}',
-      '@media(max-width:850px){#airaglite-writer-dialog{width:96vw;height:94vh;max-height:94vh}#airaglite-writer-body{display:block;overflow-y:auto}.alw-sidebar{overflow:visible;border-right:0;border-bottom:1px solid #e2e8f0}.alw-workspace{height:440px;min-height:350px}.alw-document{min-height:0}}',
+      '@media(max-width:850px){#airaglite-writer-dialog{width:96vw;height:94vh;max-height:94vh}#airaglite-writer-body{display:block;overflow-y:auto}.alw-sidebar{overflow:visible;border-right:0;border-bottom:1px solid #e2e8f0}.alw-width-tools,#airaglite-writer-splitter{display:none}.alw-workspace{height:440px;min-height:350px}.alw-document{min-height:0}}',
       '@media(max-width:560px){#airaglite-writer-overlay{padding:4px}#airaglite-writer-dialog{width:100vw;height:98vh;max-height:98vh;border-radius:8px}.alw-header{padding:12px}.alw-workspace-top{padding:9px 12px}#airaglite-writer-preview{padding:15px}.alw-footer{padding:10px 12px;align-items:stretch;flex-direction:column}.alw-footer-actions{justify-content:space-between}.alw-footer-actions .alw-primary{flex:1}.alw-sidebar{padding:15px}}'
     ].join('\n');
     $('<style id="airaglite-writer-styles"></style>').text(css).appendTo('head');
@@ -94,10 +102,15 @@ kodReady.push(function () {
     var heading = $('<div class="alw-heading"></div>').appendTo(header);
     $('<strong id="airaglite-writer-heading"></strong>').text('AI 写文档').appendTo(heading);
     $('<span class="alw-muted"></span>').text('生成草稿 → 编辑或预览 → 确认保存').appendTo(heading);
+var widthTools = $('<div class="alw-width-tools" role="group" aria-label="左右栏宽度"></div>').appendTo(header);
+    var leftWide = $('<button type="button" id="airaglite-writer-left-wide" title="加宽左侧写作设置">左侧更宽</button>').appendTo(widthTools);
+    var rightWide = $('<button type="button" id="airaglite-writer-right-wide" title="加宽右侧编辑或预览区">右侧更宽</button>').appendTo(widthTools);
+    var resetWide = $('<button type="button" id="airaglite-writer-reset-wide" title="恢复默认宽度">恢复默认</button>').appendTo(widthTools);
     var close = $('<button type="button" class="alw-close">关闭</button>').appendTo(header);
 
     var body = $('<div id="airaglite-writer-body"></div>').appendTo(dialog);
     var sidebar = $('<section class="alw-sidebar" aria-label="写作设置"></section>').appendTo(body);
+    var splitter = $('<div id="airaglite-writer-splitter" role="separator" tabindex="0" aria-orientation="vertical" aria-label="拖动调整左右栏宽度" aria-valuemin="20" aria-valuemax="75" aria-valuenow="30" title="左右拖动调整宽度；方向键微调，双击恢复默认"></div>').appendTo(body);
     var workspace = $('<section class="alw-workspace" aria-label="文档编辑与预览"></section>').appendTo(body);
 
     var titleField = $('<div class="alw-field"></div>').appendTo(sidebar);
@@ -158,6 +171,84 @@ kodReady.push(function () {
     var generationId = 0;
     var saveId = 0;
     var lastRoute = '';
+    var leftWidth = 330;
+    var dragging = false;
+    var dragStartX = 0;
+    var dragStartWidth = 330;
+    var dragPointer = null;
+
+    function desktopLayout() {
+        return window.innerWidth > 850;
+    }
+    function paneBounds() {
+        var rect = body[0].getBoundingClientRect();
+        var width = rect.width;
+        return {width:width, min:260, max:Math.max(260, width - 12 - 320)};
+    }
+    function setPaneWidth(px) {
+        if (!desktopLayout()) return;
+        var bounds = paneBounds();
+        if (!bounds.width) return;
+        leftWidth = Math.max(bounds.min, Math.min(bounds.max, Math.round(px)));
+        body[0].style.setProperty('--alw-sidebar-width', leftWidth + 'px');
+        var available = bounds.width - 12;
+        splitter.attr({
+            'aria-valuemin':String(Math.round(100 * bounds.min / available)),
+            'aria-valuemax':String(Math.round(100 * bounds.max / available)),
+            'aria-valuenow':String(Math.round(100 * leftWidth / available)),
+            'aria-valuetext':'左侧 ' + Math.round(100 * leftWidth / available) + '%'
+        });
+    }
+    function finishDrag() {
+        if (!dragging) return;
+        dragging = false;
+        dragPointer = null;
+        dialog.removeClass('alw-dragging');
+    }
+    function startDrag(event) {
+        if (!desktopLayout() || (typeof event.button === 'number' && event.button !== 0)) return;
+        var bounds = paneBounds();
+        if (!bounds.width) return;
+        setPaneWidth(leftWidth);
+        dragging = true;
+        dragStartX = event.clientX;
+        dragStartWidth = leftWidth;
+        dragPointer = event.pointerId;
+        dialog.addClass('alw-dragging');
+        if (typeof splitter[0].setPointerCapture === 'function' && typeof event.pointerId === 'number') {
+            try { splitter[0].setPointerCapture(event.pointerId); } catch (ignored) {}
+        }
+        event.preventDefault();
+    }
+    function moveDrag(event) {
+        if (!dragging || (dragPointer != null && event.pointerId != null && event.pointerId !== dragPointer)) return;
+        setPaneWidth(dragStartWidth + event.clientX - dragStartX);
+    }
+    splitter[0].addEventListener('pointerdown', startDrag);
+    document.addEventListener('pointermove', moveDrag);
+    document.addEventListener('pointerup', finishDrag);
+    document.addEventListener('pointercancel', finishDrag);
+    window.addEventListener('blur', finishDrag);
+    splitter.on('dblclick', function () { setPaneWidth(330); });
+    splitter.on('keydown', function (event) {
+        var bounds = paneBounds();
+        var step = event.shiftKey ? 60 : 20;
+        var next = leftWidth;
+        if (event.key === 'ArrowLeft') next -= step;
+        else if (event.key === 'ArrowRight') next += step;
+        else if (event.key === 'Home') next = bounds.min;
+        else if (event.key === 'End') next = bounds.max;
+        else return;
+        event.preventDefault();
+        setPaneWidth(next);
+    });
+    leftWide.on('click', function () { setPaneWidth(paneBounds().width * .54); });
+    rightWide.on('click', function () { setPaneWidth(paneBounds().width * .27); });
+    resetWide.on('click', function () { setPaneWidth(330); });
+    $(window).on('resize.airaglite-writer', function () {
+        finishDrag();
+        if (overlay.is(':visible')) setPaneWidth(leftWidth);
+    });
 
     function folderName(relative) {
         return '个人空间' + (relative ? ' / ' + relative.split('/').join(' / ') : '（根目录）');
@@ -258,9 +349,9 @@ kodReady.push(function () {
         if (url.origin === window.location.origin) window.open(url.href, '_blank', 'noopener');
     }
 
-    trigger.on('click', function () { overlay.css('display','flex'); title.trigger('focus'); });
-    close.on('click', function () { overlay.hide(); closePicker(); });
-    overlay.on('click', function (event) { if (event.target === overlay[0]) overlay.hide(); });
+    trigger.on('click', function () { overlay.css('display','flex'); setPaneWidth(leftWidth); title.trigger('focus'); });
+    close.on('click', function () { finishDrag(); overlay.hide(); closePicker(); });
+    overlay.on('click', function (event) { if (event.target === overlay[0]) { finishDrag(); overlay.hide(); } });
     editTab.on('click', function () { showTab('edit'); editor.trigger('focus'); });
     previewTab.on('click', function () { showTab('preview'); });
     editor.on('input', function () {
