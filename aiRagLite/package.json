@@ -1,0 +1,40 @@
+{
+  "id": "aiRagLite",
+  "name": "AI 智能检索（自建）",
+  "title": "AI 智能检索（自建）",
+  "version": "0.3.5",
+  "category": "tools",
+  "source": {
+    "className": "font-icon ri-search-eye-line bg-blue-6"
+  },
+  "description": "WebDAV 文档 RAG，CPU ONNX 向量检索，兼容 OpenAI 回答；支持 KodBox 常见写入事件通知、索引状态、定期对账；仅管理员可访问。；修复反代路径、源码跳转错误提示；支持打开原文件、可追溯的 AI 引用与权限检查。",
+  "auther": {
+    "copyright": "Community MVP",
+    "homePage": "https://github.com/kalcaddle/kodbox"
+  },
+  "configItem": {
+    "pluginAuth": {
+      "type": "userSelect",
+      "value": {
+        "user": 1
+      },
+      "className": "hidden",
+      "display": "使用权限",
+      "require": 1
+    },
+    "serviceUrl": {
+      "type": "input",
+      "value": "http://rag-api:8787",
+      "display": "RAG 服务内网地址",
+      "desc": "Docker 共用私有网络时填写 http://rag-api:8787，切勿指向公开未经保护的 API。",
+      "require": 1
+    },
+    "serviceKey": {
+      "type": "input",
+      "value": "",
+      "display": "RAG 服务访问密钥",
+      "desc": "与 .env 中 RAG_API_KEY 完全一致。仅 KodBox 服务端会读取，不发送给浏览器。",
+      "require": 1
+    }
+  }
+}
