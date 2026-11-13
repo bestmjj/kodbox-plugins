@@ -1,6 +1,6 @@
 <?php
 /**
- * KodBox 1.70.03 compatible community RAG plugin (v0.4.0).
+ * KodBox 1.70.03 compatible community RAG plugin (v0.5.0).
  * Admin-only read access. Notify reconciler after selected successful mutations.
  * No KodBox core/database modifications. Hooks do not cover external DAV writes.
  */
@@ -18,6 +18,7 @@ class aiRagLitePlugin extends PluginBase {
     public function echoJs(){
         if (!KodUser::isRoot()) return;
         $this->echoFile('static/main.js');
+        $this->echoFile('static/writer.js');
     }
 
     // KodBox show_json hook fires after a successful controller action.
@@ -81,7 +82,7 @@ class aiRagLitePlugin extends PluginBase {
             CURLOPT_RETURNTRANSFER => true,
             CURLOPT_FOLLOWLOCATION => false,
             CURLOPT_CONNECTTIMEOUT => 5,
-            CURLOPT_TIMEOUT => $route === 'ask' ? 180 : 30,
+            CURLOPT_TIMEOUT => in_array($route, array('ask','draft'), true) ? 180 : 30,
             CURLOPT_SSL_VERIFYPEER => true,
             CURLOPT_SSL_VERIFYHOST => 2,
         );
@@ -193,6 +194,53 @@ class aiRagLitePlugin extends PluginBase {
         // reverse-proxy host and must not be used as the browser's origin.
         $route = '#fileView&path='.rawurlencode($resolved['path']);
         show_json(array('route'=>$route, 'url'=>$route, 'name'=>$resolved['name']), true);
+    }
+
+    // Drafting uses the existing RAG chat model; no extra model credentials.
+    public function draft(){
+        KodUser::checkRoot();
+        if (!isset($_SERVER['REQUEST_METHOD']) || $_SERVER['REQUEST_METHOD'] !== 'POST') show_json('POST only', false);
+        $topic = trim(strval(Input::get('topic')));
+        $requirements = trim(strval(Input::get('requirements')));
+        $length = function_exists('mb_strlen') ? mb_strlen($topic,'UTF-8') : strlen($topic);
+        if ($length < 2 || $length > 160 || strlen($requirements) > 6000) {
+            show_json('文档主题或写作要求长度不符合限制', false);
+        }
+        $useSources = strval(Input::get('use_sources')) === '1';
+        $this->requestBackend('draft', array('topic'=>$topic,'requirements'=>$requirements,'use_sources'=>$useSources));
+    }
+
+    public function writerFolders(){
+        KodUser::checkRoot();
+        if (!isset($_SERVER['REQUEST_METHOD']) || $_SERVER['REQUEST_METHOD'] !== 'POST') show_json('POST only', false);
+        require_once(__DIR__.'/lib/DocumentWriter.php');
+        try {
+            $folder = Input::get('folder');
+            $data = AiRagLiteDocumentWriter::listFolders(is_string($folder) ? $folder : '');
+            show_json($data, true);
+        } catch (Exception $exc) {
+            show_json('读取文件夹失败：'.$exc->getMessage(), false);
+        }
+    }
+
+    public function saveDraft(){
+        KodUser::checkRoot();
+        if (!isset($_SERVER['REQUEST_METHOD']) || $_SERVER['REQUEST_METHOD'] !== 'POST') show_json('POST only', false);
+        require_once(__DIR__.'/lib/DocumentWriter.php');
+        $config = $this->getConfig();
+        $base = rtrim(trim(strval(isset($config['serviceUrl']) ? $config['serviceUrl'] : '')), '/');
+        $key = trim(strval(isset($config['serviceKey']) ? $config['serviceKey'] : ''));
+        $folder = isset($this->in['folder']) ? $this->in['folder'] : 'AI草稿';
+        try {
+            $saved = AiRagLiteDocumentWriter::save(strval(Input::get('title')),
+                strval(Input::get('content')), strval(Input::get('format')),
+                $base, $key, $folder);
+            // Plugin writes bypass explorer.index.mkfile; hint the incremental indexer.
+            $this->afterMutation(array('code'=>true));
+            show_json($saved, true);
+        } catch (Exception $exc) {
+            show_json('保存文档失败：'.$exc->getMessage(), false);
+        }
     }
 
     private function davParts($input){

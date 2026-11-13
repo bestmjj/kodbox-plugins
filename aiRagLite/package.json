@@ -2,12 +2,12 @@
   "id": "aiRagLite",
   "name": "AI 智能检索（自建）",
   "title": "AI 智能检索（自建）",
-  "version": "0.4.0",
+  "version": "0.5.0",
   "category": "tools",
   "source": {
     "className": "font-icon ri-search-eye-line bg-blue-6"
   },
-  "description": "Kodbox 管理员智能检索：原有 WebDAV 文档 RAG 与 AssetLedger 实时资产盘点、关联查询、待核实清单共用入口；资产数据只在 Kodbox 服务端读取，不发送给文档 RAG 或外部 AI。",
+  "description": "KodBox AI 智能检索及数字资产实时查询；新增在当前管理员会话中生成、预览、编辑并保存 Markdown/Word 文档。RAG WebDAV 索引账户保持只读。",
   "auther": {
     "copyright": "Community MVP",
     "homePage": "https://github.com/kalcaddle/kodbox"

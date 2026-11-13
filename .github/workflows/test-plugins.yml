@@ -28,6 +28,10 @@ jobs:
           find assetLedger aiRagLite -type f -name '*.js' -print0 | xargs -0 -n1 node --check
       - name: Live AssetLedger query adapter tests
         run: php aiRagLite/tests/test_asset_query.php
+      - name: AI writer storage tests
+        run: php aiRagLite/tests/test_writer.php
+      - name: RAG writer Python syntax
+        run: python3 -m py_compile integrations/rag-writer/service/rag/drafting.py
       - name: Asset store tests
         run: php assetLedger/tests/test_store.php
       - name: Relation consistency regression tests

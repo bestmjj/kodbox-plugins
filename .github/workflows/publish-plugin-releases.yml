@@ -41,6 +41,29 @@ jobs:
           echo "tag=$tag" >> "$GITHUB_OUTPUT"
           echo "archive=$archive" >> "$GITHUB_OUTPUT"
 
+      - name: Package aiRagLite RAG writer companion ZIP
+        if: matrix.plugin == 'aiRagLite'
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          import json
+          from pathlib import Path
+          from zipfile import ZipFile, ZIP_DEFLATED
+          version = json.loads(Path('aiRagLite/package.json').read_text(encoding='utf-8'))['version']
+          src = Path('integrations/rag-writer')
+          out = Path('dist') / f'aiRagLite-v{version}-rag-writer.zip'
+          included = ['README.md', 'install.sh', 'service/rag/drafting.py']
+          with ZipFile(out, 'w', compression=ZIP_DEFLATED) as z:
+              for name in included:
+                  path = src / name
+                  if not path.is_file():
+                      raise FileNotFoundError(path)
+                  z.write(path, name)
+          with ZipFile(out) as z:
+              assert z.testzip() is None
+          print(f'Built companion: {out}')
+          PY
       - name: Create or complete GitHub Release
         shell: bash
         env:
@@ -51,16 +74,26 @@ jobs:
           tag="${{ steps.package.outputs.tag }}"
           archive="${{ steps.package.outputs.archive }}"
           file="dist/$archive"
+          companion=""
+          if [[ "${{ matrix.plugin }}" == "aiRagLite" ]]; then
+            companion="dist/${tag}-rag-writer.zip"
+            test -f "$companion"
+          fi
           if gh release view "$tag" >/dev/null 2>&1; then
-            if gh release view "$tag" --json assets --jq '.assets[].name' | grep -Fxq "$archive"; then
-              echo "Release $tag already contains $archive; not overwriting published version."
-              exit 0
+            existing="$(gh release view "$tag" --json assets --jq '.assets[].name')"
+            if ! grep -Fxq "$archive" <<< "$existing"; then
+              gh release upload "$tag" "$file"
+            else
+              echo "Plugin ZIP already released: $archive"
             fi
-            echo "Existing release $tag is missing the ZIP; uploading it."
-            gh release upload "$tag" "$file"
+            if [[ -n "$companion" ]] && ! grep -Fxq "${companion##*/}" <<< "$existing"; then
+              gh release upload "$tag" "$companion"
+            fi
           else
-            gh release create "$tag" "$file" \
+            assets=("$file")
+            if [[ -n "$companion" ]]; then assets+=("$companion"); fi
+            gh release create "$tag" "${assets[@]}" \
               --target "$GITHUB_SHA" \
               --title "${{ matrix.plugin }} v${tag##*-v}" \
-              --notes "Kodbox plugin installation package. Download the ZIP and extract its top-level plugin folder directly into your Kodbox program's plugins/ directory. This archive contains program files only; no personal inventory or credentials."
+              --notes "Kodbox plugin installation package. The aiRagLite RAG writer requires both the plugin ZIP and the companion RAG writer ZIP, plus a rebuild of rag-api. No credentials or personal data included."
           fi

@@ -2,7 +2,7 @@ kodReady.push(function () {
     // Render the launcher independently of kodApi: KodBox may expose it later.
     // The PHP hook already restricts this script to administrator sessions.
     var jq = window.jQuery || window.$;
-    window.aiRagLiteDebug = {version:'0.4.0', stage:'start', jquery:!!jq, kodApi:!!window.kodApi};
+    window.aiRagLiteDebug = {version:'0.5.0', stage:'start', jquery:!!jq, kodApi:!!window.kodApi};
     if (!jq) {
         window.aiRagLiteDebug.stage = 'no-jquery';
         return;
@@ -360,6 +360,8 @@ kodReady.push(function () {
             var p = document.createElement('p'); mdLines(p, paragraph); target.appendChild(p);
         }
     }
+    // Safe renderer shared with the AI document editor.
+    window.aiRagLiteRenderMarkdown = mdRender;
     function show(data) {
         results.empty();
         citationMap = Object.create(null);
