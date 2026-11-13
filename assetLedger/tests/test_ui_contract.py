@@ -20,4 +20,10 @@ assert "$('legacyWallosBox').hidden=!r.wallosRef" in js, "Legacy Wallos notes mu
 assert 'id="assetVaultUrl"' in html, "Missing Bitwarden deep link field"
 assert "wallosId" in js and "wallosRef" in js, "Wallos subscription and legacy note must coexist"
 assert "[hidden]{display:none!important}" in css, "Hidden attributes must override display styling"
+assert 'id="wallosSearch"' in html and 'id="relationSearch"' in html, "Both relation pickers must offer search"
+assert "state.editingWallosId=e.target.value" in js, "Subscription picker must keep selection in separate state"
+assert "record.wallosId=state.editingWallosId" in js, "Filtering cannot silently remove subscription selection"
+assert "getLinks(item).map(" in js, "Edit must show inbound historical references"
+assert "state.rels=state.rels.filter" in js, "Relation chips must support unlinking"
+assert "function relationSearchText(" in js, "Asset relation picker must filter by content"
 print("UI CONTRACT TESTS PASSED")
