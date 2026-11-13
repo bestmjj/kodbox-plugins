@@ -129,12 +129,21 @@ class AssetLedgerStore {
         if (!in_array($state, array('active','draft','paused','retired'), true)) $state = 'draft';
         $verification = self::txt(isset($record['verification']) ? $record['verification'] : 'needs_review', 30);
         if (!in_array($verification, array('confirmed', 'needs_review'), true)) $verification = 'needs_review';
-        $fields = array('provider','url','address','repo','vaultRef','wallosRef','wallosId','kodboxRef','navoneRef','loginHint','notes','source');
+        $fields = array('provider','url','address','repo','vaultRef','vaultUrl','wallosRef','wallosId','kodboxRef','navoneRef','loginHint','notes','source');
         $out = array('id'=>$id, 'name'=>$name, 'type'=>$type, 'state'=>$state, 'verification'=>$verification);
         foreach ($fields as $field) {
             $limit = $field === 'notes' ? 6000 : 600;
             $inputValue = array_key_exists($field, $record) ? $record[$field] : ($previous && isset($previous[$field]) ? $previous[$field] : '');
             $out[$field] = self::txt($inputValue, $limit);
+        }
+        // A Bitwarden reference is only a locator: never fetch or cache passwords.
+        if ($out['vaultUrl'] !== '') {
+            $url = parse_url($out['vaultUrl']);
+            if (!is_array($url) || !isset($url['scheme'], $url['host']) ||
+                !in_array(strtolower($url['scheme']), array('https', 'http'), true) ||
+                isset($url['user']) || isset($url['pass'])) {
+                throw new InvalidArgumentException('Bitwarden 条目链接必须是无嵌入账号密码的 http(s) 网址');
+            }
         }
         // Subscription ID is a stable reference; never store a Wallos API key in a record.
         if ($out['wallosId'] !== '' && !preg_match('/^[0-9]{1,12}$/D', $out['wallosId'])) {
