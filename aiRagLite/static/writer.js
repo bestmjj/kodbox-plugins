@@ -56,16 +56,16 @@ kodReady.push(function() {
     var open=$('<button type="button" class="airaglite-writer-secondary">打开刚保存的文件</button>').hide().appendTo(actions);
     var selected='AI草稿', lastRoute='';
     function info(text,error){ message.text(String(text||'')).css('color',error?'#b91c1c':'#475569'); }
-    function request(method,payload,ok) {
-        if (!window.kodApi || typeof window.kodApi.requestSend!=='function') {info('KodBox API 尚未就绪',true);return;}
+    function request(method,payload,ok,fail) {
+        if (!window.kodApi || typeof window.kodApi.requestSend!=='function') {info('KodBox API 尚未就绪',true);if(fail)fail();return;}
         try {
             window.kodApi.requestSend('plugin/aiRagLite/'+method,payload,function(response){
                 if (!response || response.code===false || !response.data) {
-                    info(response && typeof response.data==='string' ? response.data : '请求失败',true);return;
+                    info(response && typeof response.data==='string' ? response.data : '请求失败',true);if(fail)fail();return;
                 }
                 ok(response.data);
             });
-        } catch(e) { info(e.message||String(e),true); }
+        } catch(e) { info(e.message||String(e),true);if(fail)fail(); }
     }
     function browse(folder){
         folderPanel.empty().show().append($('<p>正在加载文件夹……</p>'));
@@ -106,9 +106,7 @@ kodReady.push(function() {
             refs.text('参考范围：'+String(data.source_note||'未提供')+
                 (sources.length?'\n'+sources.map(function(s){return '['+s.id+'] '+s.path+' · '+s.location;}).join('\n'):''));
             info('草稿已生成；请检查并修改后再保存。'); previewBtn.trigger('click');
-        });
-        // Safe local timeout fallback; next click remains available.
-        window.setTimeout(function(){generate.prop('disabled',false);},185000);
+        },function(){generate.prop('disabled',false);});
     });
     previewBtn.on('click',function(){
         preview.empty().show();
@@ -124,8 +122,7 @@ kodReady.push(function() {
             save.prop('disabled',false);
             lastRoute=/^#fileView&path=.{1,4900}$/.test(String(data.route||''))?String(data.route):'';
             info('保存成功：'+String(data.name||'新文档')+'。未覆盖原文件。');open.toggle(!!lastRoute);
-        });
-        window.setTimeout(function(){save.prop('disabled',false);},60000);
+        },function(){save.prop('disabled',false);});
     });
     open.on('click',function(){
         if(!lastRoute)return;
