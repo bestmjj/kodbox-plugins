@@ -1,6 +1,6 @@
 <?php
 /**
- * KodBox 1.70.03 compatible community RAG plugin (v0.3.5).
+ * KodBox 1.70.03 compatible community RAG plugin (v0.4.0).
  * Admin-only read access. Notify reconciler after selected successful mutations.
  * No KodBox core/database modifications. Hooks do not cover external DAV writes.
  */
@@ -110,6 +110,55 @@ class aiRagLitePlugin extends PluginBase {
             show_json('搜索内容需为 2-300 个字', false);
         }
         $this->requestBackend($action, array('q' => $q, 'limit' => 8));
+    }
+
+    /**
+     * Search router shared by Kodbox document RAG and local AssetLedger.
+     *
+     * The asset branch is deterministic and never posts private inventory to
+     * RAG, OpenAI, or a public network service. Only document scope calls the
+     * configured backend. Admin session is enforced on both branches.
+     */
+    public function smart(){
+        KodUser::checkRoot();
+        if (!isset($_SERVER['REQUEST_METHOD']) || $_SERVER['REQUEST_METHOD'] !== 'POST') {
+            show_json('只允许 POST', false);
+        }
+        $q = trim(strval(Input::get('q')));
+        $len = function_exists('mb_strlen') ? mb_strlen($q, 'UTF-8') : strlen($q);
+        if ($len < 2 || $len > 300) show_json('搜索内容需为 2-300 个字', false);
+        $scope = trim(strval(Input::get('scope')));
+        if (!in_array($scope, array('auto','assets','docs'), true)) $scope = 'auto';
+        $route = strval(Input::get('ai')) === '1' ? 'ask' : 'search';
+        if ($scope === 'docs') {
+            $this->requestBackend($route, array('q'=>$q,'limit'=>8));
+            return;
+        }
+
+        require_once(__DIR__.'/lib/AssetLedgerQuery.php');
+        $ledgerPath = dirname(__DIR__).'/assetLedger/lib/AssetLedgerStore.php';
+        if (!is_file($ledgerPath)) {
+            if ($scope === 'assets' || AiRagLiteAssetQuery::wantsAssets($q, array())) {
+                show_json('未找到 AssetLedger 插件。请先安装并启用数字资产中心。', false);
+            }
+            $this->requestBackend($route, array('q'=>$q,'limit'=>8));
+            return;
+        }
+        try {
+            require_once($ledgerPath);
+            if (!defined('USER_SYSTEM')) throw new RuntimeException('Kodbox 数据路径不可用');
+            $store = new AssetLedgerStore(USER_SYSTEM.'assetLedger/');
+            $data = $store->all();
+            if ($scope === 'assets' || AiRagLiteAssetQuery::wantsAssets($q, $data)) {
+                show_json(AiRagLiteAssetQuery::run($q, $data), true);
+                return;
+            }
+        } catch (Exception $e) {
+            if ($scope === 'assets') show_json('无法读取 AssetLedger：'.$e->getMessage(), false);
+            // In automatic mode, do not leak inventory data or failure details
+            // to the document RAG. The request can still use document search.
+        }
+        $this->requestBackend($route, array('q'=>$q,'limit'=>8));
     }
 
     public function search(){ $this->query('search'); }
