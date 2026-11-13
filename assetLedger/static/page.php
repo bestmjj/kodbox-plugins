@@ -11,7 +11,7 @@
 <body>
 <div class="app" id="app">
   <header class="topbar">
-    <div class="brand"><div class="logo">◇</div><div><h1>数字资产中心 <span class="version">v1.0</span></h1><p>记录、查找、关联你的 VPS、域名、站点、账号与数字权益</p></div></div>
+    <div class="brand"><div class="logo">◇</div><div><h1>数字资产中心 <span class="version">v1.0.1</span></h1><p>记录、查找、关联你的 VPS、域名、站点、账号与数字权益</p></div></div>
     <div class="top-actions">
       <button id="typesBtn" type="button" class="btn subtle">资产类型</button>
       <button id="importBtn" type="button" class="btn subtle">导入 JSON</button>
