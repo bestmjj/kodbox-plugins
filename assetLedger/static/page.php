@@ -11,8 +11,9 @@
 <body>
 <div class="app" id="app">
   <header class="topbar">
-    <div class="brand"><div class="logo">◇</div><div><h1>数字资产中心 <span class="version">v1.0.1</span></h1><p>记录、查找、关联你的 VPS、域名、站点、账号与数字权益</p></div></div>
+    <div class="brand"><div class="logo">◇</div><div><h1>数字资产中心 <span class="version">v1.1.0</span></h1><p>记录、查找、关联你的 VPS、域名、站点、账号与数字权益</p></div></div>
     <div class="top-actions">
+      <button id="wallosBtn" type="button" class="btn subtle">Wallos 设置</button>
       <button id="typesBtn" type="button" class="btn subtle">资产类型</button>
       <button id="importBtn" type="button" class="btn subtle">导入 JSON</button>
       <button id="exportBtn" type="button" class="btn subtle">导出备份</button>
@@ -47,7 +48,7 @@
     <aside class="detail" id="detail" hidden>
       <div class="detail-header"><div><span class="eyebrow">ASSET DETAIL</span><h2 id="detailName"></h2></div><button class="icon-btn" type="button" id="closeDetail" aria-label="关闭详情">×</button></div>
       <div id="detailContent"></div>
-      <div class="detail-actions"><button type="button" class="btn primary" id="editBtn">编辑资产</button><button type="button" class="btn danger" id="deleteBtn">删除</button></div>
+      <div class="detail-actions"><button type="button" class="btn primary" id="editBtn">编辑资产</button><button type="button" class="btn subtle" id="duplicateBtn">复制资产</button><button type="button" class="btn danger" id="deleteBtn">删除</button></div>
     </aside>
   </div>
 </div>
@@ -65,6 +66,10 @@
       <div class="fields-row"><label>账号标识（非密码）<input id="assetLoginHint" placeholder="登录邮箱别名 / 用户名"></label><label>标签（以逗号分隔）<input id="assetTags" placeholder="生产, Docker, 国外VPS"></label></div>
       <label class="block-label">备注 / 核实事项<textarea id="assetNotes" rows="3" maxlength="6000" placeholder="记录用途、尚需确认的信息…"></textarea></label>
       <div class="subsection"><div class="subsection-heading"><strong>自定义字段</strong><button class="btn tiny" type="button" id="addField">＋ 字段</button></div><div id="extraFields"></div><p class="hint">例如：CPU、内存、到期日、SSL、容器名。字段可随时扩展。</p></div>
+      <div class="subsection"><div class="subsection-heading"><strong>关联 Wallos 订阅</strong><button class="btn tiny" type="button" id="refreshWallosBtn">刷新订阅</button></div>
+        <select id="assetWallosId" aria-label="选择 Wallos 订阅"><option value="">不关联订阅</option></select>
+        <p class="hint" id="wallosPickerHint">需先在页面顶部的 Wallos 设置中配置 API。订阅数据只读，修改费用请到 Wallos。</p>
+      </div>
       <div class="subsection"><div class="subsection-heading"><strong>关联其他资产</strong><span class="hint">可同时看到反向关联</span></div><div class="relation-picker"><select id="relationSelect"><option value="">选择要关联的资产…</option></select><button type="button" class="btn subtle" id="addRelation">添加</button></div><div id="relationChips" class="chips"></div></div>
     </div>
     <div class="modal-foot"><button type="button" class="btn subtle" data-close-modal>取消</button><button id="saveBtn" class="btn primary" type="submit">保存资产</button></div>
@@ -74,6 +79,25 @@
  <div class="modal-top"><div><span class="eyebrow">SCHEMA</span><h2>管理资产类型</h2></div><button type="button" class="icon-btn" data-close-types aria-label="关闭">×</button></div>
  <div class="modal-body"><p class="muted">可新增分类、修改显示名称。内置类别不可删除；自定义类别若已有资产，需要先迁移资产才能删除。</p><div id="typeList"></div><div class="type-add"><input type="text" id="typeName" maxlength="50" placeholder="输入新资产类型，如 API 服务"><button type="button" class="btn primary" id="createType">新增分类</button></div></div>
  <div class="modal-foot"><button type="button" class="btn subtle" data-close-types>关闭</button></div>
+</dialog>
+<dialog id="wallosModal" class="modal small-modal">
+  <div class="modal-top"><div><span class="eyebrow">INTEGRATION</span><h2>连接 Wallos v5.x</h2></div><button type="button" class="icon-btn" id="wallosClose" aria-label="关闭">×</button></div>
+  <div class="modal-body">
+    <p class="muted">只读连接 Wallos 的订阅 API。密钥仅保存在 Kodbox 服务端，不会写入资产 JSON 导出文件。</p>
+    <label class="block-label">Wallos 地址（从 Kodbox 服务器可访问）
+      <input id="wallosUrl" type="text" maxlength="400" placeholder="http://wallos:8282 或 https://wallos.example.com">
+    </label>
+    <label class="block-label">API Key（留空保留原密钥）
+      <input id="wallosKey" type="password" maxlength="256" autocomplete="new-password" placeholder="在 Wallos 个人资料 / API Key 中获取">
+    </label>
+    <p class="hint" id="wallosConnectionStatus">尚未读取连接配置</p>
+    <p class="hint">如果使用 HTTP，请只通过可信的 Docker / 内网连接；公网请使用 HTTPS。</p>
+  </div>
+  <div class="modal-foot">
+    <button type="button" class="btn danger" id="wallosClear">断开连接</button>
+    <button type="button" class="btn subtle" id="wallosTest">测试读取</button>
+    <button type="button" class="btn primary" id="wallosSave">保存配置</button>
+  </div>
 </dialog>
 <div id="toast" class="toast" role="status" aria-live="polite" hidden></div>
 <script>window.assetLedgerInit = <?php echo json_encode($appConfig, JSON_HEX_TAG | JSON_HEX_AMP | JSON_HEX_APOS | JSON_HEX_QUOT | JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES); ?>;</script>
