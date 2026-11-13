@@ -11,7 +11,7 @@
 <body>
 <div class="app" id="app">
   <header class="topbar">
-    <div class="brand"><div class="logo">◇</div><div><h1>数字资产中心 <span class="version">v1.1.0</span></h1><p>记录、查找、关联你的 VPS、域名、站点、账号与数字权益</p></div></div>
+    <div class="brand"><div class="logo">◇</div><div><h1>数字资产中心 <span class="version">v1.1.1</span></h1><p>记录、查找、关联你的 VPS、域名、站点、账号与数字权益</p></div></div>
     <div class="top-actions">
       <button id="wallosBtn" type="button" class="btn subtle">Wallos 设置</button>
       <button id="typesBtn" type="button" class="btn subtle">资产类型</button>
@@ -61,14 +61,30 @@
       <div class="fields-row"><label>使用状态<select id="assetState"><option value="active">使用中</option><option value="draft">待整理</option><option value="paused">暂停</option><option value="retired">已归档</option></select></label><label>信息可信度<select id="assetVerification"><option value="needs_review">待核实</option><option value="confirmed">已确认</option></select></label></div>
       <div class="fields-row"><label>服务商 / 所属平台<input id="assetProvider" placeholder="如 Netcup / 腾讯云 / GitHub"></label><label>网址 / 管理入口<input id="assetUrl" placeholder="https://…"></label></div>
       <div class="fields-row"><label>IP / 部署路径 / 地区<input id="assetAddress" placeholder="IP、Docker Compose 路径等"></label><label>代码仓库<input id="assetRepo" placeholder="https://github.com/…"></label></div>
-      <div class="fields-row"><label>关联 Bitwarden 条目<input id="assetVaultRef" placeholder="条目名称或私有引用，不要填密码"></label><label>关联 Wallos 项<input id="assetWallosRef" placeholder="续费项目名 / 链接"></label></div>
       <div class="fields-row"><label>关联 Kodbox 文档<input id="assetKodboxRef" placeholder="Kodbox 文件路径 / 链接"></label><label>关联 NavOne 项<input id="assetNavoneRef" placeholder="导航名称 / 链接"></label></div>
       <div class="fields-row"><label>账号标识（非密码）<input id="assetLoginHint" placeholder="登录邮箱别名 / 用户名"></label><label>标签（以逗号分隔）<input id="assetTags" placeholder="生产, Docker, 国外VPS"></label></div>
       <label class="block-label">备注 / 核实事项<textarea id="assetNotes" rows="3" maxlength="6000" placeholder="记录用途、尚需确认的信息…"></textarea></label>
       <div class="subsection"><div class="subsection-heading"><strong>自定义字段</strong><button class="btn tiny" type="button" id="addField">＋ 字段</button></div><div id="extraFields"></div><p class="hint">例如：CPU、内存、到期日、SSL、容器名。字段可随时扩展。</p></div>
-      <div class="subsection"><div class="subsection-heading"><strong>关联 Wallos 订阅</strong><button class="btn tiny" type="button" id="refreshWallosBtn">刷新订阅</button></div>
-        <select id="assetWallosId" aria-label="选择 Wallos 订阅"><option value="">不关联订阅</option></select>
-        <p class="hint" id="wallosPickerHint">需先在页面顶部的 Wallos 设置中配置 API。订阅数据只读，修改费用请到 Wallos。</p>
+      <div class="subsection external-integrations">
+        <div class="subsection-heading"><strong>外部服务关联</strong><span class="hint">资料留在原系统，这里保存引用</span></div>
+        <div class="integration-card">
+          <div class="integration-title"><strong>Bitwarden · 密码库条目</strong><span class="hint">只跳转，不读取凭据</span></div>
+          <div class="fields-row">
+            <label>条目名称 / 备注<input id="assetVaultRef" maxlength="600" placeholder="例如：Nuyek 独立服务器"></label>
+            <label>条目直达链接<input id="assetVaultUrl" type="url" maxlength="600" placeholder="在 Bitwarden 网页版打开该条目，复制地址栏"></label>
+          </div>
+          <div class="integration-hint"><span>请复制登录后打开条目时浏览器地址栏的网址。不要填写密码，也不要使用 Bitwarden Send / 分享凭据链接。</span><a id="openVaultLink" href="#" target="_blank" rel="noopener noreferrer" hidden>打开条目 ↗</a></div>
+        </div>
+        <div class="integration-card">
+          <div class="integration-title"><strong>Wallos · 订阅费用</strong><button class="btn tiny" type="button" id="refreshWallosBtn">刷新列表</button></div>
+          <label>选择 Wallos 订阅<select id="assetWallosId" aria-label="选择 Wallos 订阅"><option value="">不关联订阅</option></select></label>
+          <p class="hint" id="wallosPickerHint">先在页面顶部 Wallos 设置中连接。无需再填写订阅名称或链接。</p>
+          <details class="legacy-ref" id="legacyWallosBox" hidden>
+            <summary>历史 Wallos 文本备注（旧版兼容）</summary>
+            <label>旧版原始备注<input id="assetWallosRef" maxlength="600" placeholder="仅用于保留旧版记录"></label>
+            <p class="hint">这条文字不会驱动 Wallos 关联。建议上方选择对应订阅；原记录不会因升级丢失。</p>
+          </details>
+        </div>
       </div>
       <div class="subsection"><div class="subsection-heading"><strong>关联其他资产</strong><span class="hint">可同时看到反向关联</span></div><div class="relation-picker"><select id="relationSelect"><option value="">选择要关联的资产…</option></select><button type="button" class="btn subtle" id="addRelation">添加</button></div><div id="relationChips" class="chips"></div></div>
     </div>

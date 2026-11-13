@@ -1,6 +1,15 @@
-# 数字资产中心（Asset Ledger）v1.1
+# 数字资产中心（Asset Ledger）v1.1.1
 
 > 适用于 Kodbox 的独立 PHP 插件。记录 VPS、域名、站点、Docker 服务、平台账号、代码仓库、额度/许可证与关联关系。**不需要 NocoDB、新数据库、Redis 或额外容器**。
+
+## v1.1.1：外部系统关联体验修正
+
+- 资产编辑表单中不再重复出现「关联 Wallos 项」文本框。Wallos 现在**只有一个有效关联入口**：外部服务关联 → Wallos 订阅下拉选择。关联通过订阅 ID 完成，费用信息来自 Wallos API。
+- 以前登记的 `wallosRef` 文本保留在 JSON 数据中。只有旧记录确实带有该值时，编辑页面才显示折叠的「历史 Wallos 文本备注」；不覆盖、不自动清除已有资料。若已有 Wallos 订阅 ID，详情只显示有效关联而不再重复展示旧备注。
+- Bitwarden 采用 **条目名称 + 网页版条目直达链接** 的方式。请在你自己的 Bitwarden Web Vault 中打开对应条目，复制浏览器地址栏的完整 URL；粘贴到资产的「条目直达链接」，保存后可从资产详情点击链接打开。
+- **切勿使用 Bitwarden Send 或「分享凭据链接」**。AssetLedger 不读取密码库内容、密码、TOTP、API Token 或其他机密；条目链接只是登录后的定位地址，仍需要你的 Bitwarden 权限。只有名称没有链接时，也可以仅登记名称，但不能一键打开。
+- 之前将 Bitwarden 链接直接填在旧 `vaultRef` 的数据，详情仍可以识别并打开。新版本的 `vaultUrl` 是可选字段，完全兼容历史资产 JSON（数据 `schemaVersion` 不变）。
+- 复制资产时不继承原资产的 Bitwarden/Wallos 关联，以防误用原资产密码库位置或费用项。
 
 ## v1.1 新功能
 
@@ -76,7 +85,7 @@ docker exec <kodbox-container> sh -lc 'find /var/www /app -path "*/plugins/admin
 ## 扩展接口与结构
 
 - 数据结构：`schemaVersion: 1`，`types[]`，`records[]`。
-- v1.1 向记录追加可选字段 `wallosId`，兼容旧版本导入/备份；`wallosRef` 仍作为原有文本备注。
+- v1.1 向记录追加 `wallosId`，v1.1.1 增加 `vaultUrl`；旧数据继续兼容；`wallosRef` 仍作为隐藏的历史文本备注保留。
 - 资产关键字段：`id/name/type/state/verification/provider/url/address/repo/tags/attrs/relations/vaultRef/wallosRef/kodboxRef/navoneRef/notes/source`。
 - `attrs` 是不限制业务含义的键值字段；新增资产类型不需要修改代码。
 - `relations[]` 是资产 ID 数组，便于未来引入资产依赖关系、风险分析与影响面查询。

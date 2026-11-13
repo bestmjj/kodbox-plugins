@@ -11,3 +11,18 @@
 
 /* The native [hidden] attribute must override component display:flex/grid rules. */
 [hidden]{display:none!important}
+/* External integrations belong in one clear section, not duplicate top-level fields. */
+.external-integrations{margin-top:22px}
+.integration-card{border:1px solid #e3eaf3;background:#fcfdff;border-radius:12px;padding:16px 18px;margin-top:12px}
+.integration-title{display:flex;align-items:center;justify-content:space-between;gap:12px;margin-bottom:12px}
+.integration-title strong{font-size:13px;color:#344966}
+.integration-card .fields-row{margin-bottom:7px}
+.integration-hint{display:flex;align-items:center;justify-content:space-between;gap:15px;font-size:11px;color:#8794a6;line-height:1.6}
+.integration-hint a{white-space:nowrap;text-decoration:none;color:#3066c4;font-weight:600}
+.integration-hint a:hover{text-decoration:underline}
+.integration-card label{color:#596b84}
+.legacy-ref{margin-top:13px;border-top:1px solid #e9eef6;padding-top:10px}
+.legacy-ref summary{font-size:11px;color:#7f8da2;cursor:pointer}
+.legacy-ref label{margin-top:12px}
+.legacy-ref .hint{margin-top:6px}
+@media(max-width:780px){.integration-card{padding:13px}.integration-title,.integration-hint{align-items:flex-start;flex-wrap:wrap}}

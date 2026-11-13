@@ -25,7 +25,17 @@ try {
     ok(strpos($type['id'],'custom_')===0,'new custom category');
     $saved=$store->save(array('name'=>'自定义实例','type'=>$type['id'],'state'=>'draft','attrs'=>array('内存'=>'2 GiB'),'relations'=>array('s_netcup')));
     ok($saved['name']==='自定义实例' && $saved['attrs']['内存']==='2 GiB','new record, custom fields');
-    $saved['wallosId']='42';$saved['notes']='再次修改';$new=$store->save($saved);
+    $saved['wallosId']='42';$saved['notes']='再次修改';
+    $saved['wallosRef']='旧版续费文本';$saved['vaultRef']='Bitwarden 中的 VPS 管理条目';
+    $saved['vaultUrl']='https://vault.example.net/#/vault?itemId=00000000-1111-2222-3333-444444444444';
+    $new=$store->save($saved);
+    ok($new['vaultUrl']===$saved['vaultUrl'] && $new['vaultRef']===$saved['vaultRef'], 'Bitwarden item name and direct URL persisted');
+    ok($new['wallosRef']==='旧版续费文本' && $new['wallosId']==='42','legacy Wallos note preserved alongside subscription ID');
+    $minimal=$store->save(array('id'=>$new['id'],'name'=>$new['name'],'type'=>$new['type']));
+    ok($minimal['wallosRef']==='旧版续费文本' && $minimal['vaultUrl']===$saved['vaultUrl'], 'existing references survive partial record updates');
+    $badVault=$new; $badVault['vaultUrl']='javascript:alert(1)';
+    $invalidVault=false;try{$store->save($badVault);}catch(InvalidArgumentException $e){$invalidVault=true;}
+    ok($invalidVault,'reject unsafe Bitwarden URL schemes');
     ok($new['wallosId']==='42','Wallos subscription ID persisted');
     $copy=$new; $copy['id']=''; $copy['name']='自定义实例 - 副本'; $copy['wallosId']=''; $copy['relations']=array();
     $duplicated=$store->save($copy);
