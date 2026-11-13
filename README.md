@@ -5,14 +5,18 @@
 ## 下载插件
 
 - [数字资产中心 assetLedger v1.1.2](https://github.com/bestmjj/kodbox-plugins/releases/download/assetLedger-v1.1.2/assetLedger-v1.1.2.zip)
-- [AI 智能检索 aiRagLite v0.4.0](https://github.com/bestmjj/kodbox-plugins/releases/download/aiRagLite-v0.4.0/aiRagLite-v0.4.0.zip)
+- [AI 智能检索 aiRagLite v0.5.1](https://github.com/bestmjj/kodbox-plugins/releases/download/aiRagLite-v0.5.1/aiRagLite-v0.5.1.zip)
 - [查看所有版本](https://github.com/bestmjj/kodbox-plugins/releases)
 
 > aiRagLite v0.4.0 增加「智能选择 / 数字资产（实时）/ Kodbox 文档（RAG）」三个查询来源。安装好 AssetLedger 插件后，资产问题直接读取 Kodbox 中的台账；**资产数据不上传到文档 RAG、没有向量索引或 AI 二次推理**。文档功能仍然需要原有 RAG 后端服务。
 
 > 想要的效果示例：输入“我的数字资产有哪些”实时返回资产总数与分类；输入“Nuyek 关联了什么”返回已登记关系；输入“下线 Netcup 可能影响什么”给出人工关联的**候选影响清单**，并明确说明不能取代实际部署检查。
 
-> aiRagLite 需要单独配置 RAG 后端服务；ZIP 只包含 Kodbox 插件端。
+> aiRagLite v0.5.1 的「AI 写文档」改为左右分栏、编辑/预览切换、独立目录选择器。使用当前 Kodbox 管理员身份保存新文件，不使用 WebDAV 只读索引账户写入。
+>
+> aiRagLite 写作功能需要配套 RAG 后端扩展；若已安装 v0.5.0 的 RAG Writer 后端，升级 v0.5.1 **仅需更新插件 ZIP**。首次使用写作功能请同时安装同版本 Release 的 `-rag-writer.zip`。
+>
+> aiRagLite 需要单独配置 RAG 后端服务；插件 ZIP 不包含后端服务。
 
 ## 安装
 
