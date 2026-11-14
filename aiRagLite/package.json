@@ -2,12 +2,12 @@
   "id": "aiRagLite",
   "name": "AI 智能检索（自建）",
   "title": "AI 智能检索（自建）",
-  "version": "0.5.2",
+  "version": "0.5.3",
   "category": "tools",
   "source": {
     "className": "font-icon ri-search-eye-line bg-blue-6"
   },
-  "description": "KodBox RAG 智能检索、数字资产实时查询及 AI 写文档；左右栏可拖动调整宽度，支持宽度预设与键盘微调；当前管理员会话保存，索引账户保持只读。",
+  "description": "KodBox RAG 智能检索、数字资产实时查询和 AI 写文档；支持可调分栏、Markdown/Word 保存；修复空目录保存时的文件已存在误判；当前管理员会话直写、索引账号只读。",
   "auther": {
     "copyright": "Community MVP",
     "homePage": "https://github.com/kalcaddle/kodbox"
