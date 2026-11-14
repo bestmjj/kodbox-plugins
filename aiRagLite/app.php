@@ -19,6 +19,7 @@ class aiRagLitePlugin extends PluginBase {
         if (!KodUser::isRoot()) return;
         $this->echoFile('static/main.js');
         $this->echoFile('static/writer.js');
+        $this->echoFile('static/assistant.js');
     }
 
     // KodBox show_json hook fires after a successful controller action.
