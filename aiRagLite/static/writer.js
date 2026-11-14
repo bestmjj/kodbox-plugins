@@ -37,6 +37,26 @@ kodReady.push(function () {
       '.alw-primary{border:1px solid #2368d6;border-radius:7px;background:#2368d6;color:#fff;font-weight:650;padding:10px 15px;min-height:40px}',
       '.alw-secondary{border:1px solid #cbd5e1;background:#fff;color:#2454a4;border-radius:7px;padding:8px 12px;min-height:36px}',
       '.alw-generate{width:100%}',
+      '.alw-import-card{border:1px solid #d9e6f6;background:#fff;border-radius:9px;padding:11px;margin:0 0 18px}',
+      '.alw-import-card .alw-secondary{width:100%;font-weight:650;text-align:left}',
+      '#airaglite-writer-imported{font-size:12px;color:#475569;margin-top:8px;line-height:1.6;overflow-wrap:anywhere}',
+      '.alw-revise-controls{margin:12px 0 18px;padding:13px;border:1px solid #d9e6f6;background:#fff;border-radius:9px}',
+      '.alw-revise-controls textarea{width:100%;min-height:94px;max-height:180px;resize:vertical;padding:9px;border:1px solid #cbd5e1;border-radius:6px;font:inherit;line-height:1.5;color:#334155}',
+      '.alw-revise-controls select{width:100%;min-height:36px;border:1px solid #cbd5e1;border-radius:6px;padding:6px;margin:8px 0;background:#fff;color:#334155}',
+      '.alw-revise-controls .alw-primary{width:100%}',
+      '.alw-revise-controls p{color:#64748b;font-size:12px;line-height:1.5;margin:8px 0 0}',
+      '.alw-review{width:100%;height:100%;display:none;flex-direction:column;min-height:0;overflow:hidden}',
+      '.alw-review-columns{display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1fr);flex:1;min-height:0;overflow:hidden}',
+      '.alw-review-pane{display:flex;flex-direction:column;min-width:0;min-height:0;border-right:1px solid #e2e8f0;overflow:hidden}',
+      '.alw-review-pane strong{padding:10px 12px;display:block;background:#f1f5f9;border-bottom:1px solid #e2e8f0}',
+      '.alw-review-pane pre{margin:0;min-height:0;flex:1;padding:14px;overflow:auto;white-space:pre-wrap;overflow-wrap:anywhere;font:12px/1.7 ui-monospace,Consolas,monospace}',
+      '.alw-review-pane pre span{display:block;min-height:1.65em}',
+      '.alw-diff-removed{background:#fee2e2}',
+      '.alw-diff-added{background:#dcfce7}',
+      '.alw-review-footer{flex:0 0 auto;display:flex;align-items:center;justify-content:flex-end;gap:8px;padding:12px;border-top:1px solid #e2e8f0;background:#f8fafc;flex-wrap:wrap}',
+      '.alw-review-help{margin-right:auto;color:#64748b;font-size:12px}',
+      '#airaglite-writer-undo{white-space:nowrap}',
+      '@media(max-width:700px){.alw-review-columns{display:block;overflow:auto}.alw-review-pane{min-height:220px;height:50%;overflow:hidden}.alw-review-pane pre{min-height:150px}}',
       '.alw-section-divider{border:0;border-top:1px solid #e2e8f0;margin:20px 0}',
       '.alw-folder-card{border:1px solid #d8e2ef;border-radius:9px;padding:12px;background:#fff}',
       '#airaglite-writer-selected{font-size:13px;font-weight:650;line-height:1.65;overflow-wrap:anywhere;padding:4px 0 12px;white-space:pre-wrap}',
@@ -113,6 +133,11 @@ var widthTools = $('<div class="alw-width-tools" role="group" aria-label="左右
     var splitter = $('<div id="airaglite-writer-splitter" role="separator" tabindex="0" aria-orientation="vertical" aria-label="拖动调整左右栏宽度" aria-valuemin="20" aria-valuemax="75" aria-valuenow="30" title="左右拖动调整宽度；方向键微调，双击恢复默认"></div>').appendTo(body);
     var workspace = $('<section class="alw-workspace" aria-label="文档编辑与预览"></section>').appendTo(body);
 
+    var importCard = $('<div class="alw-import-card"></div>').appendTo(sidebar);
+    var openExisting = $('<button type="button" id="airaglite-writer-open-existing" class="alw-secondary">📂 打开 KodBox 已有文章</button>').appendTo(importCard);
+    var importedInfo = $('<div id="airaglite-writer-imported" aria-live="polite"></div>')
+      .text('未加载已有文件，可以直接新建文章。').appendTo(importCard);
+
     var titleField = $('<div class="alw-field"></div>').appendTo(sidebar);
     $('<label for="airaglite-writer-topic" class="alw-label">文档主题</label>').appendTo(titleField);
     var title = $('<input id="airaglite-writer-topic" type="text" maxlength="160" placeholder="例如：Cephadm 部署操作手册">').appendTo(titleField);
@@ -123,6 +148,13 @@ var widthTools = $('<div class="alw-width-tools" role="group" aria-label="左右
     var useSources = $('<input type="checkbox">').appendTo(sourceLabel);
     $('<span></span>').text('参考已有 KodBox 文档（相关片段会发送给已配置的 AI 模型）').appendTo(sourceLabel);
     var generate = $('<button type="button" class="alw-primary alw-generate">生成草稿</button>').appendTo(sidebar);
+    var reviseControls = $('<section class="alw-revise-controls" aria-label="按要求修改文章"></section>').appendTo(sidebar);
+    $('<div class="alw-label">按要求修改文章</div>').appendTo(reviseControls);
+    var instructions = $('<textarea id="airaglite-writer-instructions" maxlength="2000" placeholder="例如：删掉重复内容；补充风险和回滚步骤；保留已有技术参数。"></textarea>').appendTo(reviseControls);
+    var scope = $('<select id="airaglite-writer-revise-scope" aria-label="修改范围"><option value="full">修改全文</option><option value="selection">仅修改选中段落</option></select>').appendTo(reviseControls);
+    var revise = $('<button type="button" class="alw-primary" id="airaglite-writer-revise">AI 修改并对比</button>').appendTo(reviseControls);
+    $('<p>选段落修改时，先进入右侧「编辑正文」并选中文字。AI 的建议不会自动覆盖正文。</p>').appendTo(reviseControls);
+
     var refs = $('<details class="alw-sources"></details>').hide().appendTo(sidebar);
     $('<summary>查看引用资料</summary>').appendTo(refs);
     var refsText = $('<div class="alw-sources-text"></div>').appendTo(refs);
@@ -137,10 +169,26 @@ var widthTools = $('<div class="alw-width-tools" role="group" aria-label="左右
     var tabGroup = $('<div class="alw-tabs" role="tablist" aria-label="正文显示方式"></div>').appendTo(workspaceTop);
     var editTab = $('<button type="button" class="alw-tab" role="tab" aria-controls="airaglite-writer-editor">编辑正文</button>').appendTo(tabGroup);
     var previewTab = $('<button type="button" class="alw-tab" role="tab" aria-controls="airaglite-writer-preview">预览排版</button>').appendTo(tabGroup);
+    var reviewTab = $('<button type="button" class="alw-tab" role="tab" aria-controls="airaglite-writer-review">AI 修改对比</button>').hide().appendTo(tabGroup);
+    var undo = $('<button type="button" class="alw-secondary" id="airaglite-writer-undo">撤销上次 AI 修改</button>').hide().appendTo(workspaceTop);
     var counter = $('<span class="alw-muted" id="airaglite-writer-count"></span>').appendTo(workspaceTop);
     var documentArea = $('<div class="alw-document"></div>').appendTo(workspace);
     var editor = $('<textarea id="airaglite-writer-editor" maxlength="50000" aria-label="文档正文 Markdown" placeholder="可以在这里编辑 AI 生成的草稿，也可以自己输入 Markdown。"></textarea>').appendTo(documentArea);
     var preview = $('<div id="airaglite-writer-preview" role="tabpanel" aria-label="文档排版预览"></div>').appendTo(documentArea);
+
+    var review = $('<div id="airaglite-writer-review" class="alw-review" role="tabpanel" aria-label="AI 修改对比"></div>').appendTo(documentArea);
+    var reviewColumns = $('<div class="alw-review-columns"></div>').appendTo(review);
+    var beforeBox = $('<div class="alw-review-pane"></div>').appendTo(reviewColumns);
+    $('<strong>修改前</strong>').appendTo(beforeBox);
+    var beforePre = $('<pre id="airaglite-writer-review-before"></pre>').appendTo(beforeBox);
+    var afterBox = $('<div class="alw-review-pane"></div>').appendTo(reviewColumns);
+    $('<strong>AI 建议稿</strong>').appendTo(afterBox);
+    var afterPre = $('<pre id="airaglite-writer-review-after"></pre>').appendTo(afterBox);
+    var reviewFooter = $('<div class="alw-review-footer"></div>').appendTo(review);
+    $('<span class="alw-review-help">红色表示删除或修改前内容，绿色表示新增或修改后内容。</span>').appendTo(reviewFooter);
+    var discard = $('<button type="button" class="alw-secondary" id="airaglite-writer-discard-revision">放弃本次修改</button>').appendTo(reviewFooter);
+    var apply = $('<button type="button" class="alw-primary" id="airaglite-writer-apply-revision">应用到编辑区（尚未保存）</button>').appendTo(reviewFooter);
+
 
     var footer = $('<div class="alw-footer"></div>').appendTo(dialog);
     var message = $('<span id="airaglite-writer-message" role="status" aria-live="polite"></span>').appendTo(footer);
@@ -149,12 +197,13 @@ var widthTools = $('<div class="alw-width-tools" role="group" aria-label="左右
     var format = $('<select id="airaglite-writer-format"><option value="md">Markdown (.md)</option><option value="docx">Word (.docx)</option></select>').appendTo(footerActions);
     var open = $('<button type="button" class="alw-secondary" id="airaglite-writer-open-saved">打开已保存文件</button>').hide().appendTo(footerActions);
     var save = $('<button type="button" class="alw-primary" id="airaglite-writer-save">保存新文档</button>').appendTo(footerActions);
+    var overwrite = $('<button type="button" class="alw-secondary" id="airaglite-writer-overwrite">备份并更新原文件</button>').hide().appendTo(footerActions);
 
     // Dedicated folder chooser: browsing is not the same as choosing a folder.
     var picker = $('<div id="airaglite-writer-picker"></div>').appendTo('body');
     var pickerDialog = $('<div class="alw-picker-dialog" role="dialog" aria-modal="true" aria-label="选择保存文件夹"></div>').appendTo(picker);
     var pickerHead = $('<div class="alw-picker-header"></div>').appendTo(pickerDialog);
-    $('<strong>选择保存文件夹</strong>').appendTo(pickerHead);
+    var pickerTitle = $('<strong>选择保存文件夹</strong>').appendTo(pickerHead);
     var pickerClose = $('<button type="button" class="alw-secondary">取消</button>').appendTo(pickerHead);
     var pickerLocation = $('<div class="alw-picker-location"></div>').appendTo(pickerDialog);
     $('<div class="alw-muted">当前浏览位置（选择后才能保存到此处）</div>').appendTo(pickerLocation);
@@ -171,6 +220,11 @@ var widthTools = $('<div class="alw-width-tools" role="group" aria-label="左右
     var generationId = 0;
     var saveId = 0;
     var lastRoute = '';
+    var loadedDoc = null;
+    var pendingRevision = null;
+    var lastUndo = null;
+    var revisionId = 0;
+    var pickerMode = 'save';
     var leftWidth = 330;
     var dragging = false;
     var dragStartX = 0;
