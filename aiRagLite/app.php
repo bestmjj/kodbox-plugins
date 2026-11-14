@@ -82,7 +82,7 @@ class aiRagLitePlugin extends PluginBase {
             CURLOPT_RETURNTRANSFER => true,
             CURLOPT_FOLLOWLOCATION => false,
             CURLOPT_CONNECTTIMEOUT => 5,
-            CURLOPT_TIMEOUT => in_array($route, array('ask','draft'), true) ? 180 : 30,
+            CURLOPT_TIMEOUT => in_array($route, array('ask','draft','revise'), true) ? 180 : 30,
             CURLOPT_SSL_VERIFYPEER => true,
             CURLOPT_SSL_VERIFYHOST => 2,
         );
@@ -208,6 +208,56 @@ class aiRagLitePlugin extends PluginBase {
         }
         $useSources = strval(Input::get('use_sources')) === '1';
         $this->requestBackend('draft', array('topic'=>$topic,'requirements'=>$requirements,'use_sources'=>$useSources));
+    }
+
+    public function reviseDraft(){
+        KodUser::checkRoot();
+        if (!isset($_SERVER['REQUEST_METHOD']) || $_SERVER['REQUEST_METHOD'] !== 'POST')
+            show_json('POST only', false);
+        $content=Input::get('content');
+        $instructions=trim(strval(Input::get('instructions')));
+        $scope=strval(Input::get('scope'));
+        if (!is_string($content) || trim($content)==='' || strlen($content)>42000 ||
+            $instructions==='' || strlen($instructions)>6000 ||
+            !in_array($scope,array('full','selection'),true))
+            show_json('原文、修改要求或修改范围无效',false);
+        $this->requestBackend('revise',array(
+            'content'=>$content, 'instructions'=>$instructions, 'scope'=>$scope));
+    }
+
+    public function writerRead(){
+        KodUser::checkRoot();
+        if (!isset($_SERVER['REQUEST_METHOD']) || $_SERVER['REQUEST_METHOD'] !== 'POST')
+            show_json('POST only',false);
+        require_once(__DIR__.'/lib/DocumentWriter.php');
+        $config=$this->getConfig();
+        $base=rtrim(trim(strval(isset($config['serviceUrl'])?$config['serviceUrl']:'')),'/');
+        $key=trim(strval(isset($config['serviceKey'])?$config['serviceKey']:''));
+        try {
+            $data=AiRagLiteDocumentWriter::readDocument(
+                strval(Input::get('folder')),strval(Input::get('name')),$base,$key);
+            show_json($data,true);
+        } catch (Exception $exc) {
+            show_json('打开已有文章失败：'.$exc->getMessage(),false);
+        }
+    }
+
+    public function writerOverwrite(){
+        KodUser::checkRoot();
+        if (!isset($_SERVER['REQUEST_METHOD']) || $_SERVER['REQUEST_METHOD'] !== 'POST')
+            show_json('POST only',false);
+        if (strval(Input::get('confirm'))!=='backup-and-overwrite')
+            show_json('请明确确认先备份再更新原文件',false);
+        require_once(__DIR__.'/lib/DocumentWriter.php');
+        try {
+            $saved=AiRagLiteDocumentWriter::overwriteDocument(
+                strval(Input::get('folder')),strval(Input::get('name')),
+                strval(Input::get('hash')),strval(Input::get('content')));
+            $this->afterMutation(array('code'=>true));
+            show_json($saved,true);
+        } catch (Exception $exc) {
+            show_json('更新原文件失败：'.$exc->getMessage(),false);
+        }
     }
 
     public function writerFolders(){
