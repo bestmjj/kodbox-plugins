@@ -351,13 +351,105 @@ var widthTools = $('<div class="alw-width-tools" role="group" aria-label="左右
         }
     }
     function showTab(mode) {
-        var editing = mode === 'edit';
+        var editing=mode==='edit', reviewing=mode==='review';
         editTab.attr('aria-selected', editing ? 'true' : 'false');
-        previewTab.attr('aria-selected', editing ? 'false' : 'true');
+        previewTab.attr('aria-selected', !editing && !reviewing ? 'true' : 'false');
+        reviewTab.attr('aria-selected', reviewing ? 'true' : 'false');
         editor.toggle(editing);
-        preview.toggle(!editing);
-        if (!editing) renderPreview();
+        preview.toggle(!editing && !reviewing);
+        review.css('display', reviewing ? 'flex' : 'none');
+        if (!editing && !reviewing) renderPreview();
     }
+    function clearRevision() {
+        pendingRevision=null;
+        reviewTab.hide();
+        if (reviewTab.attr('aria-selected')==='true') showTab('edit');
+    }
+    function renderLineDiff(oldText,newText) {
+        var a=String(oldText).split('\n'),b=String(newText).split('\n');
+        var oldEqual=new Array(a.length).fill(false);
+        var newEqual=new Array(b.length).fill(false);
+        // Restrict quadratic comparison work for lengthy drafts.
+        if (a.length*b.length<=65000) {
+            var matrix=new Array(a.length+1);
+            for (var k=0;k<=a.length;k++) matrix[k]=new Uint16Array(b.length+1);
+            for (var i=a.length-1;i>=0;i--) {
+                for (var j=b.length-1;j>=0;j--) {
+                    matrix[i][j]=(a[i]===b[j])?matrix[i+1][j+1]+1:
+                        Math.max(matrix[i+1][j],matrix[i][j+1]);
+                }
+            }
+            var x=0,y=0;
+            while (x<a.length && y<b.length) {
+                if (a[x]===b[y]) {oldEqual[x]=true;newEqual[y]=true;x++;y++;}
+                else if (matrix[x+1][y]>=matrix[x][y+1]) x++;
+                else y++;
+            }
+        }
+        function fill($target,lines,same,cls) {
+            $target.empty();
+            lines.forEach(function (line,i) {
+                $('<span></span>').text(line===''?' ':line).toggleClass(cls,!same[i]).appendTo($target);
+            });
+        }
+        fill(beforePre,a,oldEqual,'alw-diff-removed');
+        fill(afterPre,b,newEqual,'alw-diff-added');
+    }
+    function loadedLabel() {
+        if (!loadedDoc) {
+            importedInfo.text('未加载已有文件，可以直接新建文章。');
+            save.text('保存新文档');
+            overwrite.hide();
+            return;
+        }
+        importedInfo.text('正在修改：'+loadedDoc.name+'\n位置：'+folderName(loadedDoc.folder)+
+            (loadedDoc.format==='docx' ? '\nWord 复杂排版可能丢失，仅支持另存新版本。' : '\n可另存新版本，或先备份再更新原文件。'))
+            .css('white-space','pre-wrap');
+        save.text('另存为新版本');
+        overwrite.toggle(loadedDoc.format!=='docx');
+    }
+    function setEditorContent(value) {
+        editor.val(String(value || ''));
+        countChars();
+        lastRoute='';
+        open.hide();
+        clearRevision();
+        lastUndo=null;
+        undo.hide();
+    }
+    function loadExistingDocument(relative,name) {
+        // Never overwrite unsaved in-browser text without the user's consent.
+        if (String(editor.val()||'').trim() &&
+            !window.confirm('打开另一篇文章会替换当前编辑区内容（尚未保存的修改会丢失）。确定继续？'))
+            return;
+        pickerList.empty().append($('<div class="alw-picker-muted"></div>').text('正在读取原文件……'));
+        request('writerRead',{folder:relative,name:name},function (data) {
+            if (!data || typeof data.content!=='string' || data.content.length>50000 ||
+                !/^[a-f0-9]{64}$/.test(String(data.hash||''))) {
+                pickerList.empty().text('文件返回内容无效，请检查服务端日志。');
+                return;
+            }
+            loadedDoc={
+                folder:String(data.folder||''),name:String(data.name||name),
+                format:String(data.format||'md'),hash:String(data.hash)
+            };
+            title.val(String(data.title||name).slice(0,160));
+            setEditorContent(data.content);
+            selected=loadedDoc.folder;
+            chosenFromPicker=true;
+            updateFolder();
+            loadedLabel();
+            if (loadedDoc.format==='docx') format.val('docx');
+            else format.val('md');
+            refs.hide();
+            closePicker();
+            showTab('preview');
+            info(String(data.note||'已加载原文，请填写“按要求修改文章”。'));
+        },function (err) {
+            pickerList.empty().append($('<div class="alw-picker-muted"></div>').text('打开失败：'+err));
+        });
+    }
+
     function closePicker() {
         folderRequestId++;
         picker.hide();
@@ -387,15 +479,37 @@ var widthTools = $('<div class="alw-width-tools" role="group" aria-label="左右
                 $('<span aria-hidden="true">›</span>').appendTo(row);
                 row.on('click', function () { browse(item.folder); });
             });
+            if (pickerMode==='open') {
+                var files=Array.isArray(data.files)?data.files:[];
+                if (files.length) {
+                    $('<div class="alw-picker-muted"></div>').text('点击已有文章即可打开（Markdown / TXT / Word）：').appendTo(pickerList);
+                    files.forEach(function (item) {
+                        if (!item || typeof item.name!=='string') return;
+                        var name=item.name,relative=browsing;
+                        var row=$('<button type="button" class="alw-picker-row"></button>').appendTo(pickerList);
+                        $('<span></span>').text('📄 '+name).appendTo(row);
+                        $('<span aria-hidden="true">打开</span>').appendTo(row);
+                        row.on('click',function(){loadExistingDocument(relative,name);});
+                    });
+                } else if (!items.length) {
+                    $('<div class="alw-picker-muted"></div>').text('这里没有可打开的文章。请返回上一级文件夹。').appendTo(pickerList);
+                }
+            }
         }, function (error) {
             if (id !== folderRequestId) return;
             pickerList.empty().append($('<div class="alw-picker-muted"></div>').text('无法读取文件夹：' + error));
         });
     }
-    function openPicker() {
-        picker.css('display', 'flex');
-        // The default AI草稿 directory may not exist yet; only create it on save.
-        browse(chosenFromPicker ? selected : '');
+    function openPicker(mode) {
+        pickerMode=mode==='open'?'open':'save';
+        pickerTitle.text(pickerMode==='open'?'打开 KodBox 已有文章':'选择保存文件夹');
+        choose.toggle(pickerMode==='save');
+        picker.css('display','flex');
+        if (pickerMode==='open') {
+            browse(loadedDoc ? loadedDoc.folder : (chosenFromPicker ? selected : ''));
+        } else {
+            browse(chosenFromPicker ? selected : '');
+        }
     }
     function openSaved() {
         if (!lastRoute || !/^#fileView&path=.{1,4900}$/.test(lastRoute)) return;
@@ -408,11 +522,16 @@ var widthTools = $('<div class="alw-width-tools" role="group" aria-label="左右
     overlay.on('click', function (event) { if (event.target === overlay[0]) { finishDrag(); overlay.hide(); } });
     editTab.on('click', function () { showTab('edit'); editor.trigger('focus'); });
     previewTab.on('click', function () { showTab('preview'); });
+    reviewTab.on('click', function () { if (pendingRevision) showTab('review'); });
     editor.on('input', function () {
         countChars();
         if (lastRoute) { lastRoute = ''; open.hide(); }
+        clearRevision();
+        lastUndo=null;
+        undo.hide();
     });
-    folderButton.on('click', openPicker);
+    folderButton.on('click', function () { openPicker('save'); });
+    openExisting.on('click', function () { openPicker('open'); });
     pickerClose.on('click', closePicker);
     picker.on('click', function (event) { if (event.target === picker[0]) closePicker(); });
     up.on('click', function () {
@@ -422,7 +541,7 @@ var widthTools = $('<div class="alw-width-tools" role="group" aria-label="左右
         browse(parts.join('/'));
     });
     choose.on('click', function () {
-        if (choose.prop('disabled')) return;
+        if (pickerMode!=='save' || choose.prop('disabled')) return;
         selected = browsing;
         chosenFromPicker = true;
         updateFolder();
