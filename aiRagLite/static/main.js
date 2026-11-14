@@ -367,6 +367,18 @@ kodReady.push(function () {
             var p = document.createElement('p'); mdLines(p, paragraph); target.appendChild(p);
         }
     }
+    // The conversational UI supplies exact refs for each independent answer.
+    // Inline [1] links are bound at render time, never to a stale search result.
+    window.aiRagLiteSetCitationSources = function(refs) {
+        citationMap = Object.create(null);
+        (Array.isArray(refs) ? refs : []).slice(0,30).forEach(function(ref) {
+            if (!ref || !Number.isInteger(Number(ref.id)) || Number(ref.id)<1 ||
+                Number(ref.id)>999 || typeof ref.path!=='string' || !ref.path) return;
+            citationMap[String(Number(ref.id))] = {
+                path:ref.path, location:String(ref.location||'')
+            };
+        });
+    };
     // Safe renderer shared with the AI document editor.
     window.aiRagLiteRenderMarkdown = mdRender;
     function show(data) {
