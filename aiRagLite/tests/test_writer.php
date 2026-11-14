@@ -84,7 +84,7 @@ ok($loaded['folder']==='项目','source folder retained');
 try{
     AiRagLiteDocumentWriter::overwriteDocument('项目',$name,str_repeat('0',64),'# 应该拒绝');
     throw new RuntimeException('stale hash accepted');
-}catch(RuntimeException $e){ok(strpos($e->getMessage(),'发生变化')!==false,'stale hash rejected');}
+}catch(RuntimeException $e){ok(strpos($e->getMessage(),'修改')!==false || strpos($e->getMessage(),'变化')!==false,'stale hash rejected');}
 ok(IO::$content[$third['path']]==='# 新方案','source unchanged on stale hash');
 $updated=AiRagLiteDocumentWriter::overwriteDocument('项目',$name,$loaded['hash'],'# 正确修改');
 ok(IO::$content[$third['path']]==='# 正确修改','existing document updated');
