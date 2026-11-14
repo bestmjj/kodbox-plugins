@@ -111,7 +111,7 @@ kodReady.push(function () {
     $('<style id="airaglite-writer-styles"></style>').text(css).appendTo('head');
 
     // Keep the launcher alongside the existing search dialog title.
-    var trigger = $('<button type="button" id="airaglite-writer-open">✍ AI 写文档</button>')
+    var trigger = $('<button type="button" id="airaglite-writer-open">✨ AI 助手</button>')
       .css({marginLeft:'auto',marginRight:'12px',border:'1px solid #cbd5e1',padding:'5px 10px',
             borderRadius:'6px',background:'#fff',color:'#1754ac'})
       .insertBefore('#airaglite-close');
@@ -120,8 +120,8 @@ kodReady.push(function () {
     var dialog = $('<div id="airaglite-writer-dialog" role="dialog" aria-modal="true" aria-labelledby="airaglite-writer-heading"></div>').appendTo(overlay);
     var header = $('<div class="alw-header"></div>').appendTo(dialog);
     var heading = $('<div class="alw-heading"></div>').appendTo(header);
-    $('<strong id="airaglite-writer-heading"></strong>').text('AI 写文档').appendTo(heading);
-    $('<span class="alw-muted"></span>').text('生成草稿 → 编辑或预览 → 确认保存').appendTo(heading);
+    $('<strong id="airaglite-writer-heading"></strong>').text('KodBox AI 助手 · 文档').appendTo(heading);
+    $('<span class="alw-muted"></span>').text('打开已有文档 · 按要求修改 · 对比确认 · 保存新版本').appendTo(heading);
 var widthTools = $('<div class="alw-width-tools" role="group" aria-label="左右栏宽度"></div>').appendTo(header);
     var leftWide = $('<button type="button" id="airaglite-writer-left-wide" title="加宽左侧写作设置">左侧更宽</button>').appendTo(widthTools);
     var rightWide = $('<button type="button" id="airaglite-writer-right-wide" title="加宽右侧编辑或预览区">右侧更宽</button>').appendTo(widthTools);
@@ -554,9 +554,142 @@ var widthTools = $('<div class="alw-width-tools" role="group" aria-label="左右
         else if (overlay.is(':visible')) overlay.hide();
     });
 
+    revise.on('click',function () {
+        var current=String(editor.val()||'');
+        var ask=String(instructions.val()||'').trim();
+        if (!current.trim()) {info('请先打开已有文章，或生成/输入一份草稿。',true);return;}
+        if (ask.length<2) {info('请输入具体的 AI 修改要求。',true);instructions.trigger('focus');return;}
+        var mode=String(scope.val()||'full');
+        var from=0,to=current.length;
+        if (mode==='selection') {
+            from=editor[0].selectionStart;
+            to=editor[0].selectionEnd;
+            if (typeof from!=='number' || typeof to!=='number' || to<=from) {
+                info('请先在右侧“编辑正文”中选中文字，再选择“仅修改选中段落”。',true);
+                showTab('edit');
+                return;
+            }
+        }
+        var fragment=current.slice(from,to);
+        if (!fragment.trim()) {info('选中的文字为空。',true);return;}
+        if (fragment.length>14000) {
+            info('本次 AI 修改最多支持 14000 字符，请选中较短的段落分批修改。',true);
+            return;
+        }
+        var id=++revisionId;
+        revise.prop('disabled',true).text('AI 正在修改……');
+        info(mode==='selection'?'正在按要求修改选中段落……':'正在按要求修改全文……');
+        var watchdog=window.setTimeout(function () {
+            if(id!==revisionId)return;
+            ++revisionId;
+            revise.prop('disabled',false).text('AI 修改并对比');
+            info('AI 修改请求超时；正文未改变。',true);
+        },185000);
+        request('reviseDraft',{content:fragment,instructions:ask,scope:mode},function(data){
+            if(id!==revisionId)return;
+            window.clearTimeout(watchdog);
+            revise.prop('disabled',false).text('AI 修改并对比');
+            if(String(editor.val()||'')!==current){info('等待 AI 期间正文发生变化，修改建议没有应用，请重新提交。',true);return;}
+            var proposed=String(data.content||'');
+            if (!proposed.trim() || proposed.length>50000 ||
+                current.length-(to-from)+proposed.length>50000) {
+                info('AI 返回的修改结果无效或正文超过 50000 字符上限。',true);return;
+            }
+            pendingRevision={originalText:current,from:from,to:to,old:fragment,newText:proposed};
+            renderLineDiff(fragment,proposed);
+            reviewTab.show();
+            showTab('review');
+            info('请对比红/绿标记；点击“应用到编辑区”才修改草稿，随后仍需手动保存。');
+        },function(error){
+            if(id!==revisionId)return;
+            window.clearTimeout(watchdog);
+            revise.prop('disabled',false).text('AI 修改并对比');
+            info(error,true);
+        });
+    });
+
+    apply.on('click',function () {
+        if(!pendingRevision)return;
+        var p=pendingRevision;
+        if(String(editor.val()||'')!==p.originalText){
+            info('正文已改变，本次 AI 修改建议已过期，请重新修改。',true);
+            clearRevision();
+            return;
+        }
+        var next=p.originalText.slice(0,p.from)+p.newText+p.originalText.slice(p.to);
+        if(next.length>50000){info('应用后文章长度超过限制。',true);return;}
+        lastUndo={before:p.originalText,after:next};
+        editor.val(next);
+        countChars();
+        lastRoute='';
+        open.hide();
+        clearRevision();
+        undo.show();
+        showTab('preview');
+        info('AI 修改已应用到编辑区，还没有保存到 KodBox。可撤销或继续修改。');
+    });
+    discard.on('click',function () {
+        clearRevision();
+        showTab('edit');
+        info('已放弃 AI 修改建议，原文保持不变。');
+    });
+    undo.on('click',function () {
+        if(!lastUndo)return;
+        if(String(editor.val()||'')!==lastUndo.after){
+            info('正文已经再次改变，为避免丢失内容，不能自动撤销。',true);
+            return;
+        }
+        editor.val(lastUndo.before);
+        lastUndo=null;
+        undo.hide();
+        countChars();
+        showTab('preview');
+        info('已撤销上次 AI 修改（仅浏览器草稿，未改动原文件）。');
+    });
+
+    overwrite.on('click',function () {
+        if(!loadedDoc || loadedDoc.format==='docx'){
+            info('请先打开 Markdown 或 TXT 原文；Word 只支持另存新版本。',true);
+            return;
+        }
+        var content=String(editor.val()||'');
+        if(!content.trim()){info('正文为空，不能覆盖原文件。',true);return;}
+        var destination=folderName(loadedDoc.folder)+' / '+loadedDoc.name;
+        if(!window.confirm('即将更新原文件：\n'+destination+
+            '\n\n插件会先在同目录创建带时间戳的原文备份，再修改原文件。确定继续？'))
+            return;
+        overwrite.prop('disabled',true).text('正在备份并更新……');
+        info('正在检查原文是否变化并创建备份……');
+        var id=++saveId;
+        var watchdog=window.setTimeout(function(){
+            if(id!==saveId)return;
+            ++saveId;
+            overwrite.prop('disabled',false).text('备份并更新原文件');
+            info('更新操作超时。请先检查原文件和备份，避免重复执行。',true);
+        },65000);
+        request('writerOverwrite',{
+            folder:loadedDoc.folder,name:loadedDoc.name,hash:loadedDoc.hash,
+            content:content,confirm:'backup-and-overwrite'
+        },function(data){
+            if(id!==saveId)return;
+            window.clearTimeout(watchdog);
+            overwrite.prop('disabled',false).text('备份并更新原文件');
+            if (data && typeof data.hash==='string') loadedDoc.hash=data.hash;
+            lastRoute=/^#fileView&path=.{1,4900}$/.test(String(data.route||''))?String(data.route):'';
+            open.toggle(!!lastRoute);
+            info('原文已更新，修改前备份：'+String(data.backup||'请检查原目录'));
+        },function(error){
+            if(id!==saveId)return;
+            window.clearTimeout(watchdog);
+            overwrite.prop('disabled',false).text('备份并更新原文件');
+            info(error,true);
+        });
+    });
+
     generate.on('click', function () {
         var topic = String(title.val() || '').trim();
         if (topic.length < 2) { info('请输入至少两个字符的文档主题。', true); title.trigger('focus'); return; }
+        if(String(editor.val()||'').trim() && !window.confirm('重新生成将清空当前编辑区内容，尚未保存的修改会丢失。确定继续？'))return;
         var id = ++generationId;
         generate.prop('disabled',true).text('正在生成……');
         info('AI 正在生成草稿，完成后会自动展示预览。');
@@ -573,10 +706,10 @@ var widthTools = $('<div class="alw-width-tools" role="group" aria-label="左右
             if (id !== generationId) return;
             window.clearTimeout(watchdog);
             generate.prop('disabled',false).text('重新生成草稿');
-            editor.val(String(data.content || ''));
+            setEditorContent(String(data.content || ''));
+            loadedDoc=null;
+            loadedLabel();
             countChars();
-            lastRoute = '';
-            open.hide();
             var sources = Array.isArray(data.sources) ? data.sources : [];
             var note = String(data.source_note || (useSources.prop('checked') ? '未检索到引用' : '未启用知识库参考'));
             refsText.text('参考范围：' + note +
@@ -608,7 +741,7 @@ var widthTools = $('<div class="alw-width-tools" role="group" aria-label="左右
         var watchdog = window.setTimeout(function () {
             if (id !== saveId) return;
             saveId++;
-            save.prop('disabled',false).text('保存新文档');
+            save.prop('disabled',false).text(loadedDoc ? '另存为新版本' : '保存新文档');
             info('保存请求超时。请先检查目标文件夹，避免重复创建。',true);
         }, 65000);
         request('saveDraft', {title:topic, content:content, format:format.val(), folder:selected}, function (data) {
@@ -628,6 +761,7 @@ var widthTools = $('<div class="alw-width-tools" role="group" aria-label="左右
     open.on('click', openSaved);
 
     updateFolder();
+    loadedLabel();
     countChars();
     showTab('preview');
 });
