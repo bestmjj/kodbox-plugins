@@ -17,6 +17,7 @@ const win = dom.window;
 const $ = require('jquery')(win);
 win.$ = win.jQuery = $;
 win.kodReady = [];
+win.confirm = () => true;
 win.aiRagLiteRenderMarkdown = function (target, markdown) {
   target.textContent = '';
   const heading = win.document.createElement('h1');
@@ -36,10 +37,21 @@ win.kodApi = {
         '其他文件':[]
       };
       assert(Object.hasOwn(dirs,payload.folder),'invalid mocked folder');
-      callback({code:true,data:{folder:payload.folder,folders:dirs[payload.folder]}});
+      callback({code:true,data:{folder:payload.folder,folders:dirs[payload.folder],
+        files:payload.folder==='我的文档/学习' ? [{name:'已有文章.md',format:'md'}] : []}});
     } else if (route.endsWith('/draft')) {
       callback(failDraft ? {code:false,data:'测试生成错误'} :
         {code:true,data:{content:'# 测试文档\n\n测试正文',sources:[],source_note:'未启用知识库参考'}});
+    } else if (route.endsWith('/writerRead')) {
+      callback({code:true,data:{folder:payload.folder,name:payload.name,format:'md',
+        title:'已有文章',content:'# 原始文章\n\n第二段',hash:'a'.repeat(64),
+        note:'已载入已有文章'}});
+    } else if (route.endsWith('/reviseDraft')) {
+      callback({code:true,data:{content:payload.scope==='selection' ? '新版段落' :
+        '# AI 修改后的全文\n\n第二段',scope:payload.scope}});
+    } else if (route.endsWith('/writerOverwrite')) {
+      callback({code:true,data:{name:payload.name,backup:'已有文章-AI修改前-备份.md',
+        hash:'b'.repeat(64),route:'#fileView&path=%7Bsource%3A1%7D%2Ftest.md'}});
     } else if (route.endsWith('/saveDraft')) {
       callback({code:true,data:{name:'测试文档.md',route:'#fileView&path=%7Bsource%3A1%7D%2Ftest.md'}});
     } else {
@@ -160,5 +172,42 @@ one('.alw-generate').trigger('click');
 assert.match(one('#airaglite-writer-message').text(),/测试生成错误/);
 assert.equal(one('.alw-generate').prop('disabled'),false,'error must reenable generate');
 
+// Assistant: open previously saved Markdown, request AI changes, compare, apply and undo.
+one('#airaglite-writer-open-existing').trigger('click');
+$('.alw-picker-row').filter(function(){return $(this).text().includes('已有文章.md');}).trigger('click');
+assert.equal(one('#airaglite-writer-editor').val(),'# 原始文章\n\n第二段','load the actual saved article');
+assert.match(one('#airaglite-writer-imported').text(),/已有文章.md/);
+assert.equal(one('#airaglite-writer-overwrite').css('display')!=='none',true,'explicit overwrite option for Markdown');
+one('#airaglite-writer-instructions').val('请补充说明并润色正文');
+one('#airaglite-writer-revise').trigger('click');
+assert.match(one('#airaglite-writer-review-after').text(),/AI 修改后的全文/);
+assert.match(one('#airaglite-writer-review-before').text(),/原始文章/);
+assert.equal(one('#airaglite-writer-editor').val(),'# 原始文章\n\n第二段','AI result must not auto-apply');
+one('#airaglite-writer-discard-revision').trigger('click');
+assert.equal(one('#airaglite-writer-editor').val(),'# 原始文章\n\n第二段','reject keeps original');
+one('#airaglite-writer-revise').trigger('click');
+one('#airaglite-writer-apply-revision').trigger('click');
+assert.match(one('#airaglite-writer-editor').val(),/AI 修改后的全文/);
+one('#airaglite-writer-undo').trigger('click');
+assert.equal(one('#airaglite-writer-editor').val(),'# 原始文章\n\n第二段','undo restores original');
+
+one('#airaglite-writer-revise-scope').val('selection');
+$('.alw-tab').eq(0).trigger('click');
+const edit=one('#airaglite-writer-editor')[0];
+edit.selectionStart='# 原始文章\n\n'.length;
+edit.selectionEnd=edit.value.length;
+one('#airaglite-writer-revise').trigger('click');
+const rev=called.filter(c=>c.route.endsWith('/reviseDraft')).at(-1);
+assert.equal(rev.payload.content,'第二段','send selection not full document');
+one('#airaglite-writer-apply-revision').trigger('click');
+assert.equal(one('#airaglite-writer-editor').val(),'# 原始文章\n\n新版段落',
+  'selected revision keeps unselected text');
+one('#airaglite-writer-overwrite').trigger('click');
+const overw=called.filter(c=>c.route.endsWith('/writerOverwrite')).at(-1);
+assert.equal(overw.payload.hash,'a'.repeat(64),'optimistic source check');
+assert.equal(overw.payload.confirm,'backup-and-overwrite','explicit confirmation');
+assert.equal(overw.payload.content,'# 原始文章\n\n新版段落');
+assert.match(one('#airaglite-writer-message').text(),/备份/);
+
 dom.window.close();
-console.log('OK: writer pane resizing, presets, keyboard, narrow screen, tabs, picker and save');
+console.log('OK: writer layout, file loading, AI revision, diff, undo, safe overwrite and existing flows');

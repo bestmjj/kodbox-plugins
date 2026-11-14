@@ -37,6 +37,26 @@ kodReady.push(function () {
       '.alw-primary{border:1px solid #2368d6;border-radius:7px;background:#2368d6;color:#fff;font-weight:650;padding:10px 15px;min-height:40px}',
       '.alw-secondary{border:1px solid #cbd5e1;background:#fff;color:#2454a4;border-radius:7px;padding:8px 12px;min-height:36px}',
       '.alw-generate{width:100%}',
+      '.alw-import-card{border:1px solid #d9e6f6;background:#fff;border-radius:9px;padding:11px;margin:0 0 18px}',
+      '.alw-import-card .alw-secondary{width:100%;font-weight:650;text-align:left}',
+      '#airaglite-writer-imported{font-size:12px;color:#475569;margin-top:8px;line-height:1.6;overflow-wrap:anywhere}',
+      '.alw-revise-controls{margin:12px 0 18px;padding:13px;border:1px solid #d9e6f6;background:#fff;border-radius:9px}',
+      '.alw-revise-controls textarea{width:100%;min-height:94px;max-height:180px;resize:vertical;padding:9px;border:1px solid #cbd5e1;border-radius:6px;font:inherit;line-height:1.5;color:#334155}',
+      '.alw-revise-controls select{width:100%;min-height:36px;border:1px solid #cbd5e1;border-radius:6px;padding:6px;margin:8px 0;background:#fff;color:#334155}',
+      '.alw-revise-controls .alw-primary{width:100%}',
+      '.alw-revise-controls p{color:#64748b;font-size:12px;line-height:1.5;margin:8px 0 0}',
+      '.alw-review{width:100%;height:100%;display:none;flex-direction:column;min-height:0;overflow:hidden}',
+      '.alw-review-columns{display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1fr);flex:1;min-height:0;overflow:hidden}',
+      '.alw-review-pane{display:flex;flex-direction:column;min-width:0;min-height:0;border-right:1px solid #e2e8f0;overflow:hidden}',
+      '.alw-review-pane strong{padding:10px 12px;display:block;background:#f1f5f9;border-bottom:1px solid #e2e8f0}',
+      '.alw-review-pane pre{margin:0;min-height:0;flex:1;padding:14px;overflow:auto;white-space:pre-wrap;overflow-wrap:anywhere;font:12px/1.7 ui-monospace,Consolas,monospace}',
+      '.alw-review-pane pre span{display:block;min-height:1.65em}',
+      '.alw-diff-removed{background:#fee2e2}',
+      '.alw-diff-added{background:#dcfce7}',
+      '.alw-review-footer{flex:0 0 auto;display:flex;align-items:center;justify-content:flex-end;gap:8px;padding:12px;border-top:1px solid #e2e8f0;background:#f8fafc;flex-wrap:wrap}',
+      '.alw-review-help{margin-right:auto;color:#64748b;font-size:12px}',
+      '#airaglite-writer-undo{white-space:nowrap}',
+      '@media(max-width:700px){.alw-review-columns{display:block;overflow:auto}.alw-review-pane{min-height:220px;height:50%;overflow:hidden}.alw-review-pane pre{min-height:150px}}',
       '.alw-section-divider{border:0;border-top:1px solid #e2e8f0;margin:20px 0}',
       '.alw-folder-card{border:1px solid #d8e2ef;border-radius:9px;padding:12px;background:#fff}',
       '#airaglite-writer-selected{font-size:13px;font-weight:650;line-height:1.65;overflow-wrap:anywhere;padding:4px 0 12px;white-space:pre-wrap}',
@@ -91,7 +111,7 @@ kodReady.push(function () {
     $('<style id="airaglite-writer-styles"></style>').text(css).appendTo('head');
 
     // Keep the launcher alongside the existing search dialog title.
-    var trigger = $('<button type="button" id="airaglite-writer-open">✍ AI 写文档</button>')
+    var trigger = $('<button type="button" id="airaglite-writer-open">✨ AI 助手</button>')
       .css({marginLeft:'auto',marginRight:'12px',border:'1px solid #cbd5e1',padding:'5px 10px',
             borderRadius:'6px',background:'#fff',color:'#1754ac'})
       .insertBefore('#airaglite-close');
@@ -100,8 +120,8 @@ kodReady.push(function () {
     var dialog = $('<div id="airaglite-writer-dialog" role="dialog" aria-modal="true" aria-labelledby="airaglite-writer-heading"></div>').appendTo(overlay);
     var header = $('<div class="alw-header"></div>').appendTo(dialog);
     var heading = $('<div class="alw-heading"></div>').appendTo(header);
-    $('<strong id="airaglite-writer-heading"></strong>').text('AI 写文档').appendTo(heading);
-    $('<span class="alw-muted"></span>').text('生成草稿 → 编辑或预览 → 确认保存').appendTo(heading);
+    $('<strong id="airaglite-writer-heading"></strong>').text('KodBox AI 助手 · 文档').appendTo(heading);
+    $('<span class="alw-muted"></span>').text('打开已有文档 · 按要求修改 · 对比确认 · 保存新版本').appendTo(heading);
 var widthTools = $('<div class="alw-width-tools" role="group" aria-label="左右栏宽度"></div>').appendTo(header);
     var leftWide = $('<button type="button" id="airaglite-writer-left-wide" title="加宽左侧写作设置">左侧更宽</button>').appendTo(widthTools);
     var rightWide = $('<button type="button" id="airaglite-writer-right-wide" title="加宽右侧编辑或预览区">右侧更宽</button>').appendTo(widthTools);
@@ -113,6 +133,11 @@ var widthTools = $('<div class="alw-width-tools" role="group" aria-label="左右
     var splitter = $('<div id="airaglite-writer-splitter" role="separator" tabindex="0" aria-orientation="vertical" aria-label="拖动调整左右栏宽度" aria-valuemin="20" aria-valuemax="75" aria-valuenow="30" title="左右拖动调整宽度；方向键微调，双击恢复默认"></div>').appendTo(body);
     var workspace = $('<section class="alw-workspace" aria-label="文档编辑与预览"></section>').appendTo(body);
 
+    var importCard = $('<div class="alw-import-card"></div>').appendTo(sidebar);
+    var openExisting = $('<button type="button" id="airaglite-writer-open-existing" class="alw-secondary">📂 打开 KodBox 已有文章</button>').appendTo(importCard);
+    var importedInfo = $('<div id="airaglite-writer-imported" aria-live="polite"></div>')
+      .text('未加载已有文件，可以直接新建文章。').appendTo(importCard);
+
     var titleField = $('<div class="alw-field"></div>').appendTo(sidebar);
     $('<label for="airaglite-writer-topic" class="alw-label">文档主题</label>').appendTo(titleField);
     var title = $('<input id="airaglite-writer-topic" type="text" maxlength="160" placeholder="例如：Cephadm 部署操作手册">').appendTo(titleField);
@@ -123,6 +148,13 @@ var widthTools = $('<div class="alw-width-tools" role="group" aria-label="左右
     var useSources = $('<input type="checkbox">').appendTo(sourceLabel);
     $('<span></span>').text('参考已有 KodBox 文档（相关片段会发送给已配置的 AI 模型）').appendTo(sourceLabel);
     var generate = $('<button type="button" class="alw-primary alw-generate">生成草稿</button>').appendTo(sidebar);
+    var reviseControls = $('<section class="alw-revise-controls" aria-label="按要求修改文章"></section>').appendTo(sidebar);
+    $('<div class="alw-label">按要求修改文章</div>').appendTo(reviseControls);
+    var instructions = $('<textarea id="airaglite-writer-instructions" maxlength="2000" placeholder="例如：删掉重复内容；补充风险和回滚步骤；保留已有技术参数。"></textarea>').appendTo(reviseControls);
+    var scope = $('<select id="airaglite-writer-revise-scope" aria-label="修改范围"><option value="full">修改全文</option><option value="selection">仅修改选中段落</option></select>').appendTo(reviseControls);
+    var revise = $('<button type="button" class="alw-primary" id="airaglite-writer-revise">AI 修改并对比</button>').appendTo(reviseControls);
+    $('<p>选段落修改时，先进入右侧「编辑正文」并选中文字。AI 的建议不会自动覆盖正文。</p>').appendTo(reviseControls);
+
     var refs = $('<details class="alw-sources"></details>').hide().appendTo(sidebar);
     $('<summary>查看引用资料</summary>').appendTo(refs);
     var refsText = $('<div class="alw-sources-text"></div>').appendTo(refs);
@@ -137,10 +169,26 @@ var widthTools = $('<div class="alw-width-tools" role="group" aria-label="左右
     var tabGroup = $('<div class="alw-tabs" role="tablist" aria-label="正文显示方式"></div>').appendTo(workspaceTop);
     var editTab = $('<button type="button" class="alw-tab" role="tab" aria-controls="airaglite-writer-editor">编辑正文</button>').appendTo(tabGroup);
     var previewTab = $('<button type="button" class="alw-tab" role="tab" aria-controls="airaglite-writer-preview">预览排版</button>').appendTo(tabGroup);
+    var reviewTab = $('<button type="button" class="alw-tab" role="tab" aria-controls="airaglite-writer-review">AI 修改对比</button>').hide().appendTo(tabGroup);
+    var undo = $('<button type="button" class="alw-secondary" id="airaglite-writer-undo">撤销上次 AI 修改</button>').hide().appendTo(workspaceTop);
     var counter = $('<span class="alw-muted" id="airaglite-writer-count"></span>').appendTo(workspaceTop);
     var documentArea = $('<div class="alw-document"></div>').appendTo(workspace);
     var editor = $('<textarea id="airaglite-writer-editor" maxlength="50000" aria-label="文档正文 Markdown" placeholder="可以在这里编辑 AI 生成的草稿，也可以自己输入 Markdown。"></textarea>').appendTo(documentArea);
     var preview = $('<div id="airaglite-writer-preview" role="tabpanel" aria-label="文档排版预览"></div>').appendTo(documentArea);
+
+    var review = $('<div id="airaglite-writer-review" class="alw-review" role="tabpanel" aria-label="AI 修改对比"></div>').appendTo(documentArea);
+    var reviewColumns = $('<div class="alw-review-columns"></div>').appendTo(review);
+    var beforeBox = $('<div class="alw-review-pane"></div>').appendTo(reviewColumns);
+    $('<strong>修改前</strong>').appendTo(beforeBox);
+    var beforePre = $('<pre id="airaglite-writer-review-before"></pre>').appendTo(beforeBox);
+    var afterBox = $('<div class="alw-review-pane"></div>').appendTo(reviewColumns);
+    $('<strong>AI 建议稿</strong>').appendTo(afterBox);
+    var afterPre = $('<pre id="airaglite-writer-review-after"></pre>').appendTo(afterBox);
+    var reviewFooter = $('<div class="alw-review-footer"></div>').appendTo(review);
+    $('<span class="alw-review-help">红色表示删除或修改前内容，绿色表示新增或修改后内容。</span>').appendTo(reviewFooter);
+    var discard = $('<button type="button" class="alw-secondary" id="airaglite-writer-discard-revision">放弃本次修改</button>').appendTo(reviewFooter);
+    var apply = $('<button type="button" class="alw-primary" id="airaglite-writer-apply-revision">应用到编辑区（尚未保存）</button>').appendTo(reviewFooter);
+
 
     var footer = $('<div class="alw-footer"></div>').appendTo(dialog);
     var message = $('<span id="airaglite-writer-message" role="status" aria-live="polite"></span>').appendTo(footer);
@@ -149,12 +197,13 @@ var widthTools = $('<div class="alw-width-tools" role="group" aria-label="左右
     var format = $('<select id="airaglite-writer-format"><option value="md">Markdown (.md)</option><option value="docx">Word (.docx)</option></select>').appendTo(footerActions);
     var open = $('<button type="button" class="alw-secondary" id="airaglite-writer-open-saved">打开已保存文件</button>').hide().appendTo(footerActions);
     var save = $('<button type="button" class="alw-primary" id="airaglite-writer-save">保存新文档</button>').appendTo(footerActions);
+    var overwrite = $('<button type="button" class="alw-secondary" id="airaglite-writer-overwrite">备份并更新原文件</button>').hide().appendTo(footerActions);
 
     // Dedicated folder chooser: browsing is not the same as choosing a folder.
     var picker = $('<div id="airaglite-writer-picker"></div>').appendTo('body');
     var pickerDialog = $('<div class="alw-picker-dialog" role="dialog" aria-modal="true" aria-label="选择保存文件夹"></div>').appendTo(picker);
     var pickerHead = $('<div class="alw-picker-header"></div>').appendTo(pickerDialog);
-    $('<strong>选择保存文件夹</strong>').appendTo(pickerHead);
+    var pickerTitle = $('<strong>选择保存文件夹</strong>').appendTo(pickerHead);
     var pickerClose = $('<button type="button" class="alw-secondary">取消</button>').appendTo(pickerHead);
     var pickerLocation = $('<div class="alw-picker-location"></div>').appendTo(pickerDialog);
     $('<div class="alw-muted">当前浏览位置（选择后才能保存到此处）</div>').appendTo(pickerLocation);
@@ -171,6 +220,11 @@ var widthTools = $('<div class="alw-width-tools" role="group" aria-label="左右
     var generationId = 0;
     var saveId = 0;
     var lastRoute = '';
+    var loadedDoc = null;
+    var pendingRevision = null;
+    var lastUndo = null;
+    var revisionId = 0;
+    var pickerMode = 'save';
     var leftWidth = 330;
     var dragging = false;
     var dragStartX = 0;
@@ -297,13 +351,105 @@ var widthTools = $('<div class="alw-width-tools" role="group" aria-label="左右
         }
     }
     function showTab(mode) {
-        var editing = mode === 'edit';
+        var editing=mode==='edit', reviewing=mode==='review';
         editTab.attr('aria-selected', editing ? 'true' : 'false');
-        previewTab.attr('aria-selected', editing ? 'false' : 'true');
+        previewTab.attr('aria-selected', !editing && !reviewing ? 'true' : 'false');
+        reviewTab.attr('aria-selected', reviewing ? 'true' : 'false');
         editor.toggle(editing);
-        preview.toggle(!editing);
-        if (!editing) renderPreview();
+        preview.toggle(!editing && !reviewing);
+        review.css('display', reviewing ? 'flex' : 'none');
+        if (!editing && !reviewing) renderPreview();
     }
+    function clearRevision() {
+        pendingRevision=null;
+        reviewTab.hide();
+        if (reviewTab.attr('aria-selected')==='true') showTab('edit');
+    }
+    function renderLineDiff(oldText,newText) {
+        var a=String(oldText).split('\n'),b=String(newText).split('\n');
+        var oldEqual=new Array(a.length).fill(false);
+        var newEqual=new Array(b.length).fill(false);
+        // Restrict quadratic comparison work for lengthy drafts.
+        if (a.length*b.length<=65000) {
+            var matrix=new Array(a.length+1);
+            for (var k=0;k<=a.length;k++) matrix[k]=new Uint16Array(b.length+1);
+            for (var i=a.length-1;i>=0;i--) {
+                for (var j=b.length-1;j>=0;j--) {
+                    matrix[i][j]=(a[i]===b[j])?matrix[i+1][j+1]+1:
+                        Math.max(matrix[i+1][j],matrix[i][j+1]);
+                }
+            }
+            var x=0,y=0;
+            while (x<a.length && y<b.length) {
+                if (a[x]===b[y]) {oldEqual[x]=true;newEqual[y]=true;x++;y++;}
+                else if (matrix[x+1][y]>=matrix[x][y+1]) x++;
+                else y++;
+            }
+        }
+        function fill($target,lines,same,cls) {
+            $target.empty();
+            lines.forEach(function (line,i) {
+                $('<span></span>').text(line===''?' ':line).toggleClass(cls,!same[i]).appendTo($target);
+            });
+        }
+        fill(beforePre,a,oldEqual,'alw-diff-removed');
+        fill(afterPre,b,newEqual,'alw-diff-added');
+    }
+    function loadedLabel() {
+        if (!loadedDoc) {
+            importedInfo.text('未加载已有文件，可以直接新建文章。');
+            save.text('保存新文档');
+            overwrite.hide();
+            return;
+        }
+        importedInfo.text('正在修改：'+loadedDoc.name+'\n位置：'+folderName(loadedDoc.folder)+
+            (loadedDoc.format==='docx' ? '\nWord 复杂排版可能丢失，仅支持另存新版本。' : '\n可另存新版本，或先备份再更新原文件。'))
+            .css('white-space','pre-wrap');
+        save.text('另存为新版本');
+        overwrite.toggle(loadedDoc.format!=='docx');
+    }
+    function setEditorContent(value) {
+        editor.val(String(value || ''));
+        countChars();
+        lastRoute='';
+        open.hide();
+        clearRevision();
+        lastUndo=null;
+        undo.hide();
+    }
+    function loadExistingDocument(relative,name) {
+        // Never overwrite unsaved in-browser text without the user's consent.
+        if (String(editor.val()||'').trim() &&
+            !window.confirm('打开另一篇文章会替换当前编辑区内容（尚未保存的修改会丢失）。确定继续？'))
+            return;
+        pickerList.empty().append($('<div class="alw-picker-muted"></div>').text('正在读取原文件……'));
+        request('writerRead',{folder:relative,name:name},function (data) {
+            if (!data || typeof data.content!=='string' || data.content.length>50000 ||
+                !/^[a-f0-9]{64}$/.test(String(data.hash||''))) {
+                pickerList.empty().text('文件返回内容无效，请检查服务端日志。');
+                return;
+            }
+            loadedDoc={
+                folder:String(data.folder||''),name:String(data.name||name),
+                format:String(data.format||'md'),hash:String(data.hash)
+            };
+            title.val(String(data.title||name).slice(0,160));
+            setEditorContent(data.content);
+            selected=loadedDoc.folder;
+            chosenFromPicker=true;
+            updateFolder();
+            loadedLabel();
+            if (loadedDoc.format==='docx') format.val('docx');
+            else format.val('md');
+            refs.hide();
+            closePicker();
+            showTab('preview');
+            info(String(data.note||'已加载原文，请填写“按要求修改文章”。'));
+        },function (err) {
+            pickerList.empty().append($('<div class="alw-picker-muted"></div>').text('打开失败：'+err));
+        });
+    }
+
     function closePicker() {
         folderRequestId++;
         picker.hide();
@@ -333,15 +479,37 @@ var widthTools = $('<div class="alw-width-tools" role="group" aria-label="左右
                 $('<span aria-hidden="true">›</span>').appendTo(row);
                 row.on('click', function () { browse(item.folder); });
             });
+            if (pickerMode==='open') {
+                var files=Array.isArray(data.files)?data.files:[];
+                if (files.length) {
+                    $('<div class="alw-picker-muted"></div>').text('点击已有文章即可打开（Markdown / TXT / Word）：').appendTo(pickerList);
+                    files.forEach(function (item) {
+                        if (!item || typeof item.name!=='string') return;
+                        var name=item.name,relative=browsing;
+                        var row=$('<button type="button" class="alw-picker-row"></button>').appendTo(pickerList);
+                        $('<span></span>').text('📄 '+name).appendTo(row);
+                        $('<span aria-hidden="true">打开</span>').appendTo(row);
+                        row.on('click',function(){loadExistingDocument(relative,name);});
+                    });
+                } else if (!items.length) {
+                    $('<div class="alw-picker-muted"></div>').text('这里没有可打开的文章。请返回上一级文件夹。').appendTo(pickerList);
+                }
+            }
         }, function (error) {
             if (id !== folderRequestId) return;
             pickerList.empty().append($('<div class="alw-picker-muted"></div>').text('无法读取文件夹：' + error));
         });
     }
-    function openPicker() {
-        picker.css('display', 'flex');
-        // The default AI草稿 directory may not exist yet; only create it on save.
-        browse(chosenFromPicker ? selected : '');
+    function openPicker(mode) {
+        pickerMode=mode==='open'?'open':'save';
+        pickerTitle.text(pickerMode==='open'?'打开 KodBox 已有文章':'选择保存文件夹');
+        choose.toggle(pickerMode==='save');
+        picker.css('display','flex');
+        if (pickerMode==='open') {
+            browse(loadedDoc ? loadedDoc.folder : (chosenFromPicker ? selected : ''));
+        } else {
+            browse(chosenFromPicker ? selected : '');
+        }
     }
     function openSaved() {
         if (!lastRoute || !/^#fileView&path=.{1,4900}$/.test(lastRoute)) return;
@@ -354,11 +522,16 @@ var widthTools = $('<div class="alw-width-tools" role="group" aria-label="左右
     overlay.on('click', function (event) { if (event.target === overlay[0]) { finishDrag(); overlay.hide(); } });
     editTab.on('click', function () { showTab('edit'); editor.trigger('focus'); });
     previewTab.on('click', function () { showTab('preview'); });
+    reviewTab.on('click', function () { if (pendingRevision) showTab('review'); });
     editor.on('input', function () {
         countChars();
         if (lastRoute) { lastRoute = ''; open.hide(); }
+        clearRevision();
+        lastUndo=null;
+        undo.hide();
     });
-    folderButton.on('click', openPicker);
+    folderButton.on('click', function () { openPicker('save'); });
+    openExisting.on('click', function () { openPicker('open'); });
     pickerClose.on('click', closePicker);
     picker.on('click', function (event) { if (event.target === picker[0]) closePicker(); });
     up.on('click', function () {
@@ -368,7 +541,7 @@ var widthTools = $('<div class="alw-width-tools" role="group" aria-label="左右
         browse(parts.join('/'));
     });
     choose.on('click', function () {
-        if (choose.prop('disabled')) return;
+        if (pickerMode!=='save' || choose.prop('disabled')) return;
         selected = browsing;
         chosenFromPicker = true;
         updateFolder();
@@ -381,9 +554,142 @@ var widthTools = $('<div class="alw-width-tools" role="group" aria-label="左右
         else if (overlay.is(':visible')) overlay.hide();
     });
 
+    revise.on('click',function () {
+        var current=String(editor.val()||'');
+        var ask=String(instructions.val()||'').trim();
+        if (!current.trim()) {info('请先打开已有文章，或生成/输入一份草稿。',true);return;}
+        if (ask.length<2) {info('请输入具体的 AI 修改要求。',true);instructions.trigger('focus');return;}
+        var mode=String(scope.val()||'full');
+        var from=0,to=current.length;
+        if (mode==='selection') {
+            from=editor[0].selectionStart;
+            to=editor[0].selectionEnd;
+            if (typeof from!=='number' || typeof to!=='number' || to<=from) {
+                info('请先在右侧“编辑正文”中选中文字，再选择“仅修改选中段落”。',true);
+                showTab('edit');
+                return;
+            }
+        }
+        var fragment=current.slice(from,to);
+        if (!fragment.trim()) {info('选中的文字为空。',true);return;}
+        if (fragment.length>14000) {
+            info('本次 AI 修改最多支持 14000 字符，请选中较短的段落分批修改。',true);
+            return;
+        }
+        var id=++revisionId;
+        revise.prop('disabled',true).text('AI 正在修改……');
+        info(mode==='selection'?'正在按要求修改选中段落……':'正在按要求修改全文……');
+        var watchdog=window.setTimeout(function () {
+            if(id!==revisionId)return;
+            ++revisionId;
+            revise.prop('disabled',false).text('AI 修改并对比');
+            info('AI 修改请求超时；正文未改变。',true);
+        },185000);
+        request('reviseDraft',{content:fragment,instructions:ask,scope:mode},function(data){
+            if(id!==revisionId)return;
+            window.clearTimeout(watchdog);
+            revise.prop('disabled',false).text('AI 修改并对比');
+            if(String(editor.val()||'')!==current){info('等待 AI 期间正文发生变化，修改建议没有应用，请重新提交。',true);return;}
+            var proposed=String(data.content||'');
+            if (!proposed.trim() || proposed.length>50000 ||
+                current.length-(to-from)+proposed.length>50000) {
+                info('AI 返回的修改结果无效或正文超过 50000 字符上限。',true);return;
+            }
+            pendingRevision={originalText:current,from:from,to:to,old:fragment,newText:proposed};
+            renderLineDiff(fragment,proposed);
+            reviewTab.show();
+            showTab('review');
+            info('请对比红/绿标记；点击“应用到编辑区”才修改草稿，随后仍需手动保存。');
+        },function(error){
+            if(id!==revisionId)return;
+            window.clearTimeout(watchdog);
+            revise.prop('disabled',false).text('AI 修改并对比');
+            info(error,true);
+        });
+    });
+
+    apply.on('click',function () {
+        if(!pendingRevision)return;
+        var p=pendingRevision;
+        if(String(editor.val()||'')!==p.originalText){
+            info('正文已改变，本次 AI 修改建议已过期，请重新修改。',true);
+            clearRevision();
+            return;
+        }
+        var next=p.originalText.slice(0,p.from)+p.newText+p.originalText.slice(p.to);
+        if(next.length>50000){info('应用后文章长度超过限制。',true);return;}
+        lastUndo={before:p.originalText,after:next};
+        editor.val(next);
+        countChars();
+        lastRoute='';
+        open.hide();
+        clearRevision();
+        undo.show();
+        showTab('preview');
+        info('AI 修改已应用到编辑区，还没有保存到 KodBox。可撤销或继续修改。');
+    });
+    discard.on('click',function () {
+        clearRevision();
+        showTab('edit');
+        info('已放弃 AI 修改建议，原文保持不变。');
+    });
+    undo.on('click',function () {
+        if(!lastUndo)return;
+        if(String(editor.val()||'')!==lastUndo.after){
+            info('正文已经再次改变，为避免丢失内容，不能自动撤销。',true);
+            return;
+        }
+        editor.val(lastUndo.before);
+        lastUndo=null;
+        undo.hide();
+        countChars();
+        showTab('preview');
+        info('已撤销上次 AI 修改（仅浏览器草稿，未改动原文件）。');
+    });
+
+    overwrite.on('click',function () {
+        if(!loadedDoc || loadedDoc.format==='docx'){
+            info('请先打开 Markdown 或 TXT 原文；Word 只支持另存新版本。',true);
+            return;
+        }
+        var content=String(editor.val()||'');
+        if(!content.trim()){info('正文为空，不能覆盖原文件。',true);return;}
+        var destination=folderName(loadedDoc.folder)+' / '+loadedDoc.name;
+        if(!window.confirm('即将更新原文件：\n'+destination+
+            '\n\n插件会先在同目录创建带时间戳的原文备份，再修改原文件。确定继续？'))
+            return;
+        overwrite.prop('disabled',true).text('正在备份并更新……');
+        info('正在检查原文是否变化并创建备份……');
+        var id=++saveId;
+        var watchdog=window.setTimeout(function(){
+            if(id!==saveId)return;
+            ++saveId;
+            overwrite.prop('disabled',false).text('备份并更新原文件');
+            info('更新操作超时。请先检查原文件和备份，避免重复执行。',true);
+        },65000);
+        request('writerOverwrite',{
+            folder:loadedDoc.folder,name:loadedDoc.name,hash:loadedDoc.hash,
+            content:content,confirm:'backup-and-overwrite'
+        },function(data){
+            if(id!==saveId)return;
+            window.clearTimeout(watchdog);
+            overwrite.prop('disabled',false).text('备份并更新原文件');
+            if (data && typeof data.hash==='string') loadedDoc.hash=data.hash;
+            lastRoute=/^#fileView&path=.{1,4900}$/.test(String(data.route||''))?String(data.route):'';
+            open.toggle(!!lastRoute);
+            info('原文已更新，修改前备份：'+String(data.backup||'请检查原目录'));
+        },function(error){
+            if(id!==saveId)return;
+            window.clearTimeout(watchdog);
+            overwrite.prop('disabled',false).text('备份并更新原文件');
+            info(error,true);
+        });
+    });
+
     generate.on('click', function () {
         var topic = String(title.val() || '').trim();
         if (topic.length < 2) { info('请输入至少两个字符的文档主题。', true); title.trigger('focus'); return; }
+        if(String(editor.val()||'').trim() && !window.confirm('重新生成将清空当前编辑区内容，尚未保存的修改会丢失。确定继续？'))return;
         var id = ++generationId;
         generate.prop('disabled',true).text('正在生成……');
         info('AI 正在生成草稿，完成后会自动展示预览。');
@@ -400,10 +706,10 @@ var widthTools = $('<div class="alw-width-tools" role="group" aria-label="左右
             if (id !== generationId) return;
             window.clearTimeout(watchdog);
             generate.prop('disabled',false).text('重新生成草稿');
-            editor.val(String(data.content || ''));
+            setEditorContent(String(data.content || ''));
+            loadedDoc=null;
+            loadedLabel();
             countChars();
-            lastRoute = '';
-            open.hide();
             var sources = Array.isArray(data.sources) ? data.sources : [];
             var note = String(data.source_note || (useSources.prop('checked') ? '未检索到引用' : '未启用知识库参考'));
             refsText.text('参考范围：' + note +
@@ -435,7 +741,7 @@ var widthTools = $('<div class="alw-width-tools" role="group" aria-label="左右
         var watchdog = window.setTimeout(function () {
             if (id !== saveId) return;
             saveId++;
-            save.prop('disabled',false).text('保存新文档');
+            save.prop('disabled',false).text(loadedDoc ? '另存为新版本' : '保存新文档');
             info('保存请求超时。请先检查目标文件夹，避免重复创建。',true);
         }, 65000);
         request('saveDraft', {title:topic, content:content, format:format.val(), folder:selected}, function (data) {
@@ -455,6 +761,7 @@ var widthTools = $('<div class="alw-width-tools" role="group" aria-label="左右
     open.on('click', openSaved);
 
     updateFolder();
+    loadedLabel();
     countChars();
     showTab('preview');
 });

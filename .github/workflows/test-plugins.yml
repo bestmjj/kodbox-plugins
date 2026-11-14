@@ -4,12 +4,14 @@ on:
     paths:
       - 'assetLedger/**'
       - 'aiRagLite/**'
+      - 'integrations/rag-writer/**'
       - '.github/workflows/test-plugins.yml'
   push:
     branches: [main]
     paths:
       - 'assetLedger/**'
       - 'aiRagLite/**'
+      - 'integrations/rag-writer/**'
       - '.github/workflows/test-plugins.yml'
 permissions:
   contents: read
@@ -36,6 +38,10 @@ jobs:
           node aiRagLite/tests/test_writer_ui.cjs
       - name: RAG writer Python syntax
         run: python3 -m py_compile integrations/rag-writer/service/rag/drafting.py
+      - name: RAG AI assistant document revision tests
+        run: |
+          python3 -m pip install --quiet "python-docx>=1.1,<2" "fastapi>=0.110,<1" "pydantic>=2,<3" requests
+          python3 integrations/rag-writer/tests/test_drafting.py
       - name: Asset store tests
         run: php assetLedger/tests/test_store.php
       - name: Relation consistency regression tests
