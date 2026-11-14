@@ -160,7 +160,7 @@ kodReady.push(function () {
         return row;
     }
     function safeRoute(raw) {
-        return typeof raw==='string' && /^#fileView&path=[^\\s]{1,4900}$/.test(raw);
+        return typeof raw==='string' && /^#fileView&path=.{1,4900}$/.test(raw);
     }
     function openSource(item) {
         var path=item&&item.path?String(item.path):'';
