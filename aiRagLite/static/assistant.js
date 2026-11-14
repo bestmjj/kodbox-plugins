@@ -199,7 +199,7 @@ kodReady.push(function () {
                 ' 条记录。'+String(data.expense_summary.method||'')).appendTo(facts);
         }
         if(data.truncated) {
-            $('<div class="aic-attachment-note"></div>').text('注意：文件较长，本次只分析了前 12000 个字符。').appendTo(row);
+            $('<div class="aic-attachment-note"></div>').text('注意：文件较长，本次只分析了前 6000 个字符。').appendTo(row);
         }
         if(data.proposal && typeof data.proposal.content==='string') {
             var proposal=data.proposal;
