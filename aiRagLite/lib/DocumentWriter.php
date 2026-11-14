@@ -28,7 +28,7 @@ class AiRagLiteDocumentWriter {
         }
         return $segments;
     }
-    private static function foldersIn($path) {
+    private static function entriesIn($path) {
         if (!isset($GLOBALS['in']) || !is_array($GLOBALS['in'])) $GLOBALS['in']=array();
         $present=array_key_exists('pageNum',$GLOBALS['in']);
         $saved=$present ? $GLOBALS['in']['pageNum'] : null;
@@ -38,9 +38,15 @@ class AiRagLiteDocumentWriter {
             if ($present) $GLOBALS['in']['pageNum']=$saved;
             else unset($GLOBALS['in']['pageNum']);
         }
-        return is_array($result) && isset($result['folderList']) && is_array($result['folderList'])
+        if (!is_array($result)) throw new RuntimeException('无法读取文件夹内容');
+        return $result;
+    }
+    private static function foldersIn($path) {
+        $result=self::entriesIn($path);
+        return isset($result['folderList']) && is_array($result['folderList'])
             ? $result['folderList'] : array();
     }
+
     public static function resolveFolder($relative,$createDefault=false) {
         $parts=self::segments($relative);
         $path=self::home();
@@ -68,8 +74,12 @@ class AiRagLiteDocumentWriter {
     }
     public static function listFolders($relative='') {
         $path=self::resolveFolder($relative,false);
+        $listing=self::entriesIn($path);
         $result=array();
-        foreach (self::foldersIn($path) as $entry) {
+        $files=array();
+        $folders=isset($listing['folderList']) && is_array($listing['folderList'])
+            ? $listing['folderList'] : array();
+        foreach ($folders as $entry) {
             if (!is_array($entry) || !isset($entry['name'],$entry['path']) ||
                 (isset($entry['isDelete']) && $entry['isDelete']=='1')) continue;
             $name=strval($entry['name']);
@@ -80,8 +90,115 @@ class AiRagLiteDocumentWriter {
             $result[]=array('name'=>$name,'folder'=>$sub);
             if (count($result)>=300) break;
         }
-        return array('folder'=>$relative,'folders'=>$result);
+        $list=isset($listing['fileList']) && is_array($listing['fileList']) ? $listing['fileList'] : array();
+        foreach ($list as $entry) {
+            if (!is_array($entry) || !isset($entry['name'],$entry['path']) ||
+                (isset($entry['isDelete']) && $entry['isDelete']=='1')) continue;
+            $name=strval($entry['name']);
+            if (!self::supportedExtension($name)) continue;
+            if (!Action('explorer.auth')->fileCan($entry['path'],'view')) continue;
+            $files[]=array('name'=>$name,'size'=>isset($entry['size'])?intval($entry['size']):null,
+                'format'=>strtolower(pathinfo($name,PATHINFO_EXTENSION)));
+            if (count($files)>=300) break;
+        }
+        return array('folder'=>$relative,'folders'=>$result,'files'=>$files);
     }
+    private static function supportedExtension($name) {
+        return is_string($name) && strlen($name)<=255 &&
+            preg_match('/\.(md|markdown|txt|docx)$/i',$name) &&
+            strpos($name,'/')===false && strpos($name,"\\")===false &&
+            strpos($name,"\0")===false && $name!=='.' && $name!=='..';
+    }
+    private static function findDocument($relative,$name,$action='view') {
+        if (!self::supportedExtension($name)) throw new RuntimeException('只支持 Markdown、TXT 和 DOCX 文件');
+        $folder=self::resolveFolder($relative,false);
+        $listed=self::entriesIn($folder);
+        $list=isset($listed['fileList']) && is_array($listed['fileList']) ? $listed['fileList'] : array();
+        foreach ($list as $entry) {
+            if (!is_array($entry) || !isset($entry['name'],$entry['path']) || $entry['name']!==$name ||
+                (isset($entry['isDelete']) && $entry['isDelete']=='1')) continue;
+            $path=$entry['path'];
+            if (!Action('explorer.auth')->fileCan($path,$action)) throw new RuntimeException('当前用户没有该文件的访问权限');
+            return array('folder'=>$folder,'path'=>$path,'name'=>$name,
+                'size'=>isset($entry['size'])?intval($entry['size']):null);
+        }
+        throw new RuntimeException('原文件不存在、已移动或不可访问，请重新选择');
+    }
+    private static function readBytes($item) {
+        if ($item['size']!==null && $item['size']>3*1024*1024)
+            throw new RuntimeException('文件大于 3 MB，暂不支持导入');
+        $bytes=IO::getContent($item['path']);
+        if (!is_string($bytes) || strlen($bytes)>3*1024*1024)
+            throw new RuntimeException('读取文件失败或文件大于 3 MB');
+        return $bytes;
+    }
+    private static function importWord($base,$key,$bytes) {
+        if (!function_exists('curl_init') || !preg_match('#^https?://[^/]+(:[0-9]+)?$#i',$base) || !$key)
+            throw new RuntimeException('Word 解析服务未配置');
+        if (substr($bytes,0,2)!=='PK') throw new RuntimeException('Word 文件结构无效');
+        $ch=curl_init($base.'/v1/import-docx');
+        curl_setopt_array($ch,array(
+            CURLOPT_POST=>true,
+            CURLOPT_POSTFIELDS=>json_encode(array('data_base64'=>base64_encode($bytes))),
+            CURLOPT_HTTPHEADER=>array('Content-Type: application/json','X-RAG-Key: '.$key),
+            CURLOPT_RETURNTRANSFER=>true,CURLOPT_FOLLOWLOCATION=>false,
+            CURLOPT_CONNECTTIMEOUT=>5,CURLOPT_TIMEOUT=>50,
+            CURLOPT_SSL_VERIFYPEER=>true,CURLOPT_SSL_VERIFYHOST=>2));
+        $response=curl_exec($ch);
+        $status=curl_getinfo($ch,CURLINFO_HTTP_CODE);curl_close($ch);
+        $data=is_string($response) && $status===200 ? json_decode($response,true) : null;
+        if (!is_array($data) || !isset($data['content']) || !is_string($data['content']))
+            throw new RuntimeException('Word 正文提取失败，请检查 RAG 后端');
+        return $data['content'];
+    }
+    public static function readDocument($relative,$name,$base,$key) {
+        $item=self::findDocument($relative,$name,'view');
+        $bytes=self::readBytes($item);
+        $format=strtolower(pathinfo($name,PATHINFO_EXTENSION));
+        if ($format==='docx') {
+            $content=self::importWord($base,$key,$bytes);
+            $note='Word 已转换为可编辑的文本与表格；图片、批注和复杂排版可能丢失。只能另存为新的 Word 文件，不能覆盖原文。';
+        } else {
+            if (strlen($bytes)>100000 || strpos($bytes,"\0")!==false ||
+                (function_exists('mb_check_encoding') && !mb_check_encoding($bytes,'UTF-8')))
+                throw new RuntimeException('原文件不是受支持的 UTF-8 文本，或超过 100KB');
+            $content=$bytes;
+            $note='原文件已载入。修改后可以另存为新版本；如需更新原文，会先创建备份。';
+        }
+        if (strlen($content)>100000) throw new RuntimeException('文件正文太长，暂时无法编辑');
+        $title=preg_replace('/\.(md|markdown|txt|docx)$/i','',$name);
+        return array('folder'=>$relative,'name'=>$name,'format'=>$format,'title'=>$title,
+            'content'=>$content,'hash'=>hash('sha256',$bytes),'note'=>$note);
+    }
+    public static function overwriteDocument($relative,$name,$expectedHash,$content) {
+        $format=strtolower(pathinfo($name,PATHINFO_EXTENSION));
+        if (!in_array($format,array('md','markdown','txt'),true))
+            throw new RuntimeException('仅允许覆盖 Markdown 和 TXT，Word 请另存新版本');
+        if (!is_string($expectedHash) || !preg_match('/^[a-f0-9]{64}$/',$expectedHash))
+            throw new RuntimeException('原文件校验信息缺失，请重新载入');
+        if (!is_string($content) || trim($content)==='' || strlen($content)>100000)
+            throw new RuntimeException('修改后的文章为空或超过 100KB');
+        $item=self::findDocument($relative,$name,'edit');
+        if (!Action('explorer.auth')->fileCan($item['folder'],'edit'))
+            throw new RuntimeException('没有目标文件夹的写入权限');
+        $original=self::readBytes($item);
+        if (!hash_equals($expectedHash,hash('sha256',$original)))
+            throw new RuntimeException('原文件已被其他操作修改，请重新打开后再保存');
+        $basename=preg_replace('/\.(md|markdown|txt)$/i','',$name);
+        $backup=self::cleanTitle($basename).'-AI修改前-'.date('Ymd-His').'-'.bin2hex(random_bytes(4)).'.'.$format;
+        $backupPath=KodIO::clear(rtrim($item['folder'],'/').'/'.$backup);
+        // Complete a separate same-folder backup before changing original content.
+        $result=IO::mkfile($backupPath,$original,REPEAT_RENAME);
+        if (!$result) throw new RuntimeException('创建原文备份失败：'.IO::getLastError(''));
+        $recheck=IO::getContent($item['path']);
+        if (!is_string($recheck) || !hash_equals($expectedHash,hash('sha256',$recheck)))
+            throw new RuntimeException('备份已创建，但原文件发生变化。已停止覆盖，请重新载入');
+        if (!IO::setContent($item['path'],$content))
+            throw new RuntimeException('备份已创建，但写入原文件失败：'.IO::getLastError(''));
+        return array('name'=>$name,'folder'=>$relative,'hash'=>hash('sha256',$content),
+            'backup'=>$backup,'route'=>'#fileView&path='.rawurlencode($item['path']));
+    }
+
     private static function docx($base,$key,$content,$title) {
         if (!function_exists('curl_init') ||
             !preg_match('#^https?://[^/]+(:[0-9]+)?$#i',$base) || !$key)
