@@ -114,7 +114,11 @@ class AiRagLiteDocumentWriter {
         $safe=self::cleanTitle($title);
         $name=$safe.'-'.date('Ymd-His').'-'.bin2hex(random_bytes(4)).'.'.$format;
         $target=KodIO::clear(rtrim($folder,'/').'/'.$name);
-        if (IO::info($target)) throw new RuntimeException('文件已存在，不允许覆盖');
+        // Do not preflight with IO::info($target): for virtual {source:*}/name
+        // paths KodBox can return an existing directory or resolve the parent,
+        // even when the named child does not exist. This caused false "exists"
+        // errors in an empty folder. REPEAT_RENAME is KodBox's own safe
+        // new-file policy: it does not overwrite an existing file.
         $bytes=$format==='docx' ? self::docx($base,$key,$content,$safe) : $content;
         $result=IO::mkfile($target,$bytes,REPEAT_RENAME);
         if (!$result) throw new RuntimeException('保存失败：'.IO::getLastError(''));
