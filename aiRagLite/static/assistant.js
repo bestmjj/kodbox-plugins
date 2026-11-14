@@ -150,7 +150,9 @@ kodReady.push(function () {
     function scrollBottom() {
         if (messages.length) messages[0].scrollTop=messages[0].scrollHeight;
     }
-    function addTurn(role,body) {
+    function addTurn(role,body,sources) {
+        if (role==='assistant' && typeof window.aiRagLiteSetCitationSources==='function')
+            window.aiRagLiteSetCitationSources(sources||[]);
         var row=$('<div class="aic-turn"></div>').addClass(role).appendTo(messages);
         var box=$('<div class="aic-bubble"></div>').appendTo(row);
         if (role==='assistant' && typeof window.aiRagLiteRenderMarkdown==='function')
@@ -245,13 +247,18 @@ kodReady.push(function () {
             window.clearTimeout(watchdog);
             pending=false;send.prop('disabled',false).text('发送');
             var answer=typeof data.answer==='string'?data.answer:'没有收到有效回答。';
-            var row=addTurn('assistant',answer);
+            var row=addTurn('assistant',answer,data.sources||[]);
             attachResult(row,data);
-            turns.push({role:'user',content:question});
-            // A generated proposal's potentially huge body is deliberately NOT
-            // sent as conversation history. Only bounded assistant responses are.
-            turns.push({role:'assistant',content:answer.slice(0,2200)});
-            if(turns.length>16)turns=turns.slice(-16);
+            // AssetLedger replies must NEVER be replayed into external LLM
+            // history on a later, unrelated document question.
+            if (data.mode==='asset_live') {
+                turns=[];
+            } else {
+                turns.push({role:'user',content:question});
+                // The full proposed document is never added to chat history.
+                turns.push({role:'assistant',content:answer.slice(0,2200)});
+                if(turns.length>16)turns=turns.slice(-16);
+            }
             setStatus(data.mode==='asset_live'?'AssetLedger 本地实时查询 · 未提交给文档 AI':
                 attached?'当前文件只读分析 · 原文件未改变':'RAG 知识库查询 · 原文件未改变');
             scrollBottom();
