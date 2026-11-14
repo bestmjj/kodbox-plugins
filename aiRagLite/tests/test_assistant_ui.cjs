@@ -12,6 +12,8 @@ const win=dom.window,$=require('jquery')(win);
 win.$=win.jQuery=$;
 win.kodReady=[];
 win.aiRagLiteRenderMarkdown=(node,md)=>{node.textContent=md;};
+let activeSources=[];
+win.aiRagLiteSetCitationSources=(sources)=>{activeSources=sources;};
 win.aiRagLiteOpenSearch=()=>{win._searchOpened=true;};
 let opened=null;
 win.aiRagLiteOpenWriterRevision=(folder,name,content)=>{opened={kind:'revision',folder,name,content};};
@@ -80,6 +82,7 @@ let query=calls.filter(x=>x.route.endsWith('/assistantChat')).at(-1);
 assert.equal(query.payload.file_name,'');
 assert.equal(query.payload.history_json,'[]');
 assert.match(one('#airaglite-chat-messages').text(),/找到 \[1\]/);
+assert.equal(activeSources[0].path,'与我协作/用户[admin]/我的文档/a.md','per-answer refs');
 input.val('我还想继续问');send.trigger('click');
 query=calls.filter(x=>x.route.endsWith('/assistantChat')).at(-1);
 const history=JSON.parse(query.payload.history_json);
@@ -125,6 +128,10 @@ assert.deepEqual(opened,{kind:'new',title:'交接手册',content:'# 交接手册
 one('#airaglite-chat-reset').trigger('click');
 input.val('我的资产有哪些');send.trigger('click');
 assert.match(one('#airaglite-chat-status').text(),/未提交给文档 AI/);
+input.val('查找另外的知识库资料');send.trigger('click');
+const afterAssets=calls.filter(x=>x.route.endsWith('/assistantChat')).at(-1);
+assert.equal(afterAssets.payload.history_json,'[]',
+  'asset result must not be replayed as external model history');
 
 failed=true;
 input.val('请再查一次');send.trigger('click');
