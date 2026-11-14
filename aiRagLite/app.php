@@ -19,6 +19,7 @@ class aiRagLitePlugin extends PluginBase {
         if (!KodUser::isRoot()) return;
         $this->echoFile('static/main.js');
         $this->echoFile('static/writer.js');
+        $this->echoFile('static/assistant.js');
     }
 
     // KodBox show_json hook fires after a successful controller action.
@@ -69,7 +70,7 @@ class aiRagLitePlugin extends PluginBase {
         return !!preg_match('#^https?://[^/]+(:[0-9]+)?$#i', $base);
     }
 
-    private function requestBackend($route, $payload, $method='POST'){
+    private function backendData($route, $payload, $method='POST'){
         KodUser::checkRoot();
         $config = $this->getConfig();
         $base = rtrim(trim(strval(isset($config['serviceUrl']) ? $config['serviceUrl'] : '')), '/');
@@ -82,7 +83,7 @@ class aiRagLitePlugin extends PluginBase {
             CURLOPT_RETURNTRANSFER => true,
             CURLOPT_FOLLOWLOCATION => false,
             CURLOPT_CONNECTTIMEOUT => 5,
-            CURLOPT_TIMEOUT => in_array($route, array('ask','draft','revise'), true) ? 180 : 30,
+            CURLOPT_TIMEOUT => in_array($route, array('ask','draft','revise','assistant-chat'), true) ? 180 : 30,
             CURLOPT_SSL_VERIFYPEER => true,
             CURLOPT_SSL_VERIFYHOST => 2,
         );
@@ -100,7 +101,11 @@ class aiRagLitePlugin extends PluginBase {
         }
         $data = json_decode($response, true);
         if (!is_array($data)) show_json('RAG 服务返回数据格式异常', false);
-        show_json($data);
+        return $data;
+    }
+
+    private function requestBackend($route, $payload, $method='POST'){
+        show_json($this->backendData($route, $payload, $method));
     }
 
     private function query($action){
@@ -160,6 +165,139 @@ class aiRagLitePlugin extends PluginBase {
             // to the document RAG. The request can still use document search.
         }
         $this->requestBackend($route, array('q'=>$q,'limit'=>8));
+    }
+
+    /**
+     * Chat-first assistant. The only file context it can send to the model
+     * is a document the current KodBox admin can open via DocumentWriter.
+     * AssetLedger questions stay fully local and deterministic.
+     */
+    public function assistantChat(){
+        KodUser::checkRoot();
+        if (!isset($_SERVER['REQUEST_METHOD']) || $_SERVER['REQUEST_METHOD'] !== 'POST')
+            show_json('POST only',false);
+        $message=trim(strval(Input::get('message')));
+        $length=function_exists('mb_strlen') ? mb_strlen($message,'UTF-8') : strlen($message);
+        if ($length<2 || $length>1800) show_json('请输入 2-1800 字的要求',false);
+
+        $rawHistory=Input::get('history_json');
+        if (!is_string($rawHistory) || strlen($rawHistory)>26000) $rawHistory='[]';
+        $provided=json_decode($rawHistory,true);
+        $history=array();
+        if (is_array($provided)) {
+            foreach (array_slice($provided,-8) as $entry) {
+                if (!is_array($entry) || !isset($entry['role'],$entry['content']) ||
+                    !in_array($entry['role'],array('user','assistant'),true) ||
+                    !is_string($entry['content'])) continue;
+                $content=trim($entry['content']);
+                $len=function_exists('mb_strlen') ? mb_strlen($content,'UTF-8') : strlen($content);
+                if (!$content || $len>2400) continue;
+                $history[]=array('role'=>$entry['role'],'content'=>$content);
+            }
+        }
+        $folder=Input::get('file_folder');
+        $name=Input::get('file_name');
+        $folder=is_string($folder)?$folder:'';
+        $name=is_string($name)?$name:'';
+        if ($folder!=='' && $name==='') show_json('关联的文件名称为空',false);
+        $doc=null;
+        if ($name!=='') {
+            require_once(__DIR__.'/lib/DocumentWriter.php');
+            $config=$this->getConfig();
+            $base=rtrim(trim(strval(isset($config['serviceUrl'])?$config['serviceUrl']:'')),'/');
+            $key=trim(strval(isset($config['serviceKey'])?$config['serviceKey']:'')); 
+            try {
+                $loaded=AiRagLiteDocumentWriter::readDocument($folder,$name,$base,$key);
+            } catch (Exception $exc) {
+                show_json('无法读取关联文件：'.$exc->getMessage(),false);
+            }
+            // Limit model context explicitly; do not claim to analyze unseen pages.
+            $full=$loaded['content'];
+            $maxChars=6000;
+            $length=function_exists('mb_strlen') ? mb_strlen($full,'UTF-8') : strlen($full);
+            $truncated=$length>$maxChars;
+            $snippet=$truncated ? (function_exists('mb_substr') ?
+                mb_substr($full,0,$maxChars,'UTF-8') : substr($full,0,$maxChars)) : $full;
+            $doc=array('name'=>$loaded['name'],'content'=>$snippet,'truncated'=>$truncated);
+
+            // An explicit edit request returns a proposal ONLY. Browser must
+            // show a diff and ask the admin to apply/save it separately.
+            $changeIntent=preg_match('/(?:^|[，。；\s])(?:帮我|请|替我|把|将|给我|直接)?(?:修改|润色|改写|扩写|精简|重写|修订|补充)(?:这篇|文章|全文|正文|一下|第|内容|文档|表格)?/u',$message) &&
+                          !preg_match('/^(怎么|如何|为什么|能否|可否|是否)/u',$message);
+            if ($changeIntent) {
+                if ($truncated || (function_exists('mb_strlen') ?
+                        mb_strlen($full,'UTF-8')>14000 : strlen($full)>14000)) {
+                    show_json('文章较长，不能直接生成全文修改稿。请先用旧版文档编辑器选中段落进行修改。',false);
+                }
+                $revised=$this->backendData('revise',array(
+                    'content'=>$full,'instructions'=>$message,'scope'=>'full'
+                ));
+                $new=isset($revised['content']) && is_string($revised['content'])
+                    ? trim($revised['content']) : '';
+                if ($new==='') show_json('模型没有返回可用的修改稿',false);
+                show_json(array(
+                    'answer'=>'我已根据您的要求生成修改建议。**原文件没有改变。** 点击下方“查看差异并确认”后，可以对比、应用，再选择另存或备份后更新原文件。',
+                    'mode'=>'proposal',
+                    'proposal'=>array('kind'=>'revision','folder'=>$folder,
+                        'name'=>$name,'content'=>$new),
+                    'sources'=>array(),
+                ),true);
+            }
+        }
+
+        // AssetLedger never leaves the local PHP process. Only applicable
+        // when there is no explicitly attached document.
+        if ($doc===null &&
+            !preg_match('/文档|文件|知识库|笔记|教程|部署|日志|手册|文章/u',$message)) {
+            $ledgerPath=dirname(__DIR__).'/assetLedger/lib/AssetLedgerStore.php';
+            if (is_file($ledgerPath)) {
+                try {
+                    require_once(__DIR__.'/lib/AssetLedgerQuery.php');
+                    require_once($ledgerPath);
+                    if (defined('USER_SYSTEM')) {
+                        $ledger=new AssetLedgerStore(USER_SYSTEM.'assetLedger/');
+                        $inventory=$ledger->all();
+                        if (AiRagLiteAssetQuery::wantsAssets($message,$inventory)) {
+                            $result=AiRagLiteAssetQuery::run($message,$inventory);
+                            show_json(array(
+                                'answer'=>$result['answer'],
+                                'mode'=>'asset_live',
+                                'asset_results'=>$result['results'],
+                                'source_note'=>$result['note'],
+                                'sources'=>array()
+                            ),true);
+                        }
+                    }
+                } catch (Exception $exc) {
+                    // On asset-related queries fail closed: never forward
+                    // private inventory names to the external language model.
+                    if (preg_match('/数字资产|资产台账|资产关联|资产清单|我的资产|待核实/u',$message))
+                        show_json('AssetLedger 实时查询失败，请检查插件状态',false);
+                }
+            }
+        }
+        if ($doc===null && preg_match('/(?:这篇|这份|当前|本篇).{0,12}(?:文档|文章|文件|费用|账单)/u',$message)) {
+            show_json(array('answer'=>'请先在助手顶部点击“关联文件”，选择您要分析的 KodBox 文档。关联后直接问“总结今年的费用”即可；不会修改原文件。','mode'=>'needs_file','sources'=>array()),true);
+        }
+
+        // Explicit request to draft a NEW document, never overwrite old ones.
+        if ($doc===null && preg_match('/(?:帮我写|请写|写一份|起草|撰写|帮我生成|生成一份).{0,65}(?:文档|文章|报告|方案|手册|总结|计划)/u',$message)) {
+            $topic=function_exists('mb_substr')?mb_substr($message,0,120,'UTF-8'):substr($message,0,120);
+            $draft=$this->backendData('draft',array(
+                'topic'=>$topic,'requirements'=>$message,'use_sources'=>false));
+            $content=isset($draft['content'])?$draft['content']:'';
+            if (!is_string($content) || trim($content)==='')
+                show_json('模型没有返回有效文档草稿',false);
+            show_json(array(
+                'answer'=>'草稿已生成。您可以继续描述想调整的地方；点击“在编辑器中检查并保存”后，才会进入保存流程。',
+                'mode'=>'proposal','proposal'=>array(
+                    'kind'=>'new','title'=>'AI 新文档','content'=>$content
+                ),'sources'=>array()
+            ),true);
+        }
+        $this->requestBackend('assistant-chat',array(
+            'message'=>$message,'history'=>$history,'document'=>$doc
+        ));
     }
 
     public function search(){ $this->query('search'); }

@@ -417,7 +417,7 @@ var widthTools = $('<div class="alw-width-tools" role="group" aria-label="左右
         lastUndo=null;
         undo.hide();
     }
-    function loadExistingDocument(relative,name) {
+    function loadExistingDocument(relative,name,suggestedText) {
         // Never overwrite unsaved in-browser text without the user's consent.
         if (String(editor.val()||'').trim() &&
             !window.confirm('打开另一篇文章会替换当前编辑区内容（尚未保存的修改会丢失）。确定继续？'))
@@ -443,9 +443,22 @@ var widthTools = $('<div class="alw-width-tools" role="group" aria-label="左右
             else format.val('md');
             refs.hide();
             closePicker();
-            showTab('preview');
-            info(String(data.note||'已加载原文，请填写“按要求修改文章”。'));
+            // Suggestions from the chat assistant are REVIEW-ONLY: do not
+            // replace the editor content, hash, or KodBox file until confirmed.
+            if (typeof suggestedText==='string' && suggestedText.trim() &&
+                suggestedText.length<=50000 && suggestedText!==data.content) {
+                pendingRevision={originalText:data.content,from:0,to:data.content.length,
+                    old:data.content,newText:suggestedText};
+                renderLineDiff(data.content,suggestedText);
+                reviewTab.show();
+                showTab('review');
+                info('AI 修改建议已载入，请先对比前后内容。点击“应用到编辑区”才会更改本地草稿。');
+            } else {
+                showTab('preview');
+                info(String(data.note||'已加载原文，请填写“按要求修改文章”。'));
+            }
         },function (err) {
+            info('打开原文件失败：'+err,true);
             pickerList.empty().append($('<div class="alw-picker-muted"></div>').text('打开失败：'+err));
         });
     }
@@ -759,6 +772,28 @@ var widthTools = $('<div class="alw-width-tools" role="group" aria-label="左右
         });
     });
     open.on('click', openSaved);
+
+    // Explicit hand-off from conversational assistant to the existing editor.
+    // No file is written by these entry points.
+    window.aiRagLiteOpenWriterRevision=function(relative,name,suggestion){
+        if (typeof relative!=='string' || typeof name!=='string' ||
+            typeof suggestion!=='string' || suggestion.length>50000) return;
+        overlay.css('display','flex');
+        loadExistingDocument(relative,name,suggestion);
+    };
+    window.aiRagLiteOpenWriterDraft=function(draftTitle,draftBody){
+        if (typeof draftBody!=='string' || !draftBody.trim() || draftBody.length>50000) return;
+        if (String(editor.val()||'').trim() &&
+            !window.confirm('打开 AI 新草稿会替换当前浏览器编辑区，未保存内容会丢失。继续？')) return;
+        overlay.css('display','flex');
+        title.val(String(draftTitle||'AI 新文档').slice(0,160));
+        loadedDoc=null;
+        setEditorContent(draftBody);
+        loadedLabel();
+        format.val('md');
+        showTab('preview');
+        info('草稿来自 AI 对话。请检查内容，确认后才会保存到 KodBox。');
+    };
 
     updateFolder();
     loadedLabel();

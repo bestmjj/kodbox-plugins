@@ -187,6 +187,8 @@ def tidy_model_markdown(content):
     return match.group(1).strip() if match else content
 
 def register_routes(app,cfg,authorize,retrieve):
+    from .assistant_chat import register_assistant_routes
+    register_assistant_routes(app, cfg, authorize, retrieve, collect, chat)
     @app.post('/v1/draft',dependencies=[Depends(authorize)])
     def draft(data:DraftRequest):
         if not cfg.chat_enabled:raise HTTPException(status_code=503,detail='模型未配置')

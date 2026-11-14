@@ -2,7 +2,7 @@ kodReady.push(function () {
     // Render the launcher independently of kodApi: KodBox may expose it later.
     // The PHP hook already restricts this script to administrator sessions.
     var jq = window.jQuery || window.$;
-    window.aiRagLiteDebug = {version:'0.5.0', stage:'start', jquery:!!jq, kodApi:!!window.kodApi};
+    window.aiRagLiteDebug = {version:'0.7.0', stage:'start', jquery:!!jq, kodApi:!!window.kodApi};
     if (!jq) {
         window.aiRagLiteDebug.stage = 'no-jquery';
         return;
@@ -52,7 +52,7 @@ kodReady.push(function () {
       '.airaglite-asset-meta{font-size:12px;color:#64748b;margin-top:3px}' +
       '.airaglite-help{font-size:12px;color:#64748b;padding:0 22px 8px;line-height:1.5}';
     $('head').append($('<style>').text(css));
-    var btn = $('<button id="airaglite-open" type="button">🔎 智能检索</button>').appendTo('body');
+    var btn = $('<button id="airaglite-open" type="button">✨ AI 助手</button>').appendTo('body');
     window.aiRagLiteDebug.stage = 'mounted';
     window.aiRagLiteOpen = function () { btn.trigger('click'); };
     var layer = $('<div id="airaglite-overlay"></div>').appendTo('body');
@@ -110,7 +110,14 @@ kodReady.push(function () {
     });
     var results = $('<div id="airaglite-results"></div>').appendTo(panel);
     function close() { layer.hide(); }
-    btn.on('click', function () { layer.css('display', 'flex'); query.trigger('focus'); });
+    // Keep the original search UI as an advanced tool, not the default entry.
+    window.aiRagLiteOpenSearch = function () {
+        layer.css('display', 'flex'); query.trigger('focus');
+    };
+    btn.on('click', function () {
+        if (typeof window.aiRagLiteOpenAssistant === 'function') window.aiRagLiteOpenAssistant();
+        else window.aiRagLiteOpenSearch();
+    });
     $('#airaglite-close').on('click', close);
     layer.on('click', function (e) { if (e.target === layer[0]) close(); });
     $(document).on('keydown.airaglite', function (e) { if (e.key === 'Escape') close(); });
@@ -360,6 +367,18 @@ kodReady.push(function () {
             var p = document.createElement('p'); mdLines(p, paragraph); target.appendChild(p);
         }
     }
+    // The conversational UI supplies exact refs for each independent answer.
+    // Inline [1] links are bound at render time, never to a stale search result.
+    window.aiRagLiteSetCitationSources = function(refs) {
+        citationMap = Object.create(null);
+        (Array.isArray(refs) ? refs : []).slice(0,30).forEach(function(ref) {
+            if (!ref || !Number.isInteger(Number(ref.id)) || Number(ref.id)<1 ||
+                Number(ref.id)>999 || typeof ref.path!=='string' || !ref.path) return;
+            citationMap[String(Number(ref.id))] = {
+                path:ref.path, location:String(ref.location||'')
+            };
+        });
+    };
     // Safe renderer shared with the AI document editor.
     window.aiRagLiteRenderMarkdown = mdRender;
     function show(data) {

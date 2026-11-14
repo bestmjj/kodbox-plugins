@@ -5,20 +5,20 @@
 ## 下载插件
 
 - [数字资产中心 assetLedger v1.1.2](https://github.com/bestmjj/kodbox-plugins/releases/download/assetLedger-v1.1.2/assetLedger-v1.1.2.zip)
-- [AI 智能检索 aiRagLite v0.6.0](https://github.com/bestmjj/kodbox-plugins/releases/download/aiRagLite-v0.6.0/aiRagLite-v0.6.0.zip)
+- [KodBox AI 助手 aiRagLite v0.7.0](https://github.com/bestmjj/kodbox-plugins/releases/download/aiRagLite-v0.7.0/aiRagLite-v0.7.0.zip)
 - [查看所有版本](https://github.com/bestmjj/kodbox-plugins/releases)
 
 > aiRagLite v0.4.0 增加「智能选择 / 数字资产（实时）/ Kodbox 文档（RAG）」三个查询来源。安装好 AssetLedger 插件后，资产问题直接读取 Kodbox 中的台账；**资产数据不上传到文档 RAG、没有向量索引或 AI 二次推理**。文档功能仍然需要原有 RAG 后端服务。
 
 > 想要的效果示例：输入“我的数字资产有哪些”实时返回资产总数与分类；输入“Nuyek 关联了什么”返回已登记关系；输入“下线 Netcup 可能影响什么”给出人工关联的**候选影响清单**，并明确说明不能取代实际部署检查。
 
-> **v0.6.0 KodBox AI 助手（文档能力）**：保留知识库检索、数字资产查询，支持生成文章、打开个人空间中已有 Markdown/TXT/Word、按要求 AI 修改、前后对比、应用或放弃并撤销修改。
+> **v0.7.0：聊天优先的 KodBox AI 助手。** 点击右下角直接进入对话；可以关联管理员个人空间里的 MD/TXT/Word 文档后总结、连续追问、费用核算（按币种分别统计），或直接检索现有 RAG 知识库、查询本地 AssetLedger 资产台账。
 >
-> 修改后默认**另存为新版本**。Markdown/TXT 可在明确确认后，先创建同目录备份再更新原文件；Word 的图片和复杂排版可能丢失，**不能直接覆盖原 Word**。
+> 如果在聊天里提出明确的“修改文章”要求，只返回 **待审阅修改稿**。用户点击查看差异、应用到编辑区，再确认另存或备份后更新；AI 对话端不直接写文件。新文档同样需要在原有编辑器中确认保存。
 >
-> **重要**：从 v0.5.x 升级 v0.6.0 时，需要同时更新 aiRagLite 插件 ZIP 和配套的 -rag-writer.zip，并重新构建 rag-api。仅更新插件会导致 AI 修改、Word 导入接口不存在。
+> **当前限制：** v0.7.0 仍需在聊天窗口中**主动关联文件**，暂不自动读取 KodBox 正在编辑的文件；没有对外开放全盘文件写入、移动或删除工具。AssetLedger 问题只在本地 PHP 中计算，不发送到 RAG/LLM。
 >
-> rag_reader 仅用于只读 WebDAV 索引，所有文档操作使用 KodBox 当前管理员会话。未实现企业版全部 Agent/MCP 功能；详见 integrations/rag-writer/README.md。
+> **重要：** 从 v0.6.x 升级 v0.7.0 需要同时更新插件 ZIP 与 `-rag-writer.zip`，并重新构建 `rag-api`，否则 `/v1/assistant-chat` 不存在。WebDAV `rag_reader` 仍只读。详见 `integrations/rag-writer/README.md`。
 
 ## 安装
 
