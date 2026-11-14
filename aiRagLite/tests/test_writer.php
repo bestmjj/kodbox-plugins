@@ -6,7 +6,7 @@ class KodIO {
     public static function make($id){return '{source:'.$id.'}';}
     public static function clear($path){return $path;}
 }
-class AuthStub {public function fileCan($path,$action){return $action==='show'||$action==='edit';}}
+class AuthStub {public function fileCan($path,$action){return in_array($action,array('show','view','edit'),true);}}
 class ListStub {
     public function path($path){
         $rows=array();
