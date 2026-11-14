@@ -213,7 +213,7 @@ class aiRagLitePlugin extends PluginBase {
             }
             // Limit model context explicitly; do not claim to analyze unseen pages.
             $full=$loaded['content'];
-            $maxChars=12000;
+            $maxChars=6000;
             $length=function_exists('mb_strlen') ? mb_strlen($full,'UTF-8') : strlen($full);
             $truncated=$length>$maxChars;
             $snippet=$truncated ? (function_exists('mb_substr') ?
