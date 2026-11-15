@@ -7,7 +7,8 @@ import sys
 import types
 from pathlib import Path
 from types import SimpleNamespace
-from fastapi import FastAPI
+from fastapi import FastAPI, HTTPException
+import requests
 from docx import Document
 
 root=Path(__file__).resolve().parents[1]
@@ -59,4 +60,17 @@ parsed=routes["/v1/import-docx"].endpoint(writer.ImportDocxRequest(
     data_base64=base64.b64encode(data).decode()
 ))
 assert "# 已有 Word 文档" in parsed["content"]
-print("OK: DOCX import, invalid input, revision route and protected endpoints")
+# The generation endpoint must reveal a safe upstream HTTP status, without
+# leaking provider body, URL, or credentials.
+response=requests.Response()
+response.status_code=429
+writer.chat=lambda cfg,messages: (_ for _ in ()).throw(
+    requests.HTTPError("secret-upstream-body",response=response))
+try:
+    routes["/v1/draft"].endpoint(writer.DraftRequest(topic="运维交接手册"))
+except HTTPException as e:
+    assert e.status_code==502 and "429" in e.detail
+    assert "secret" not in e.detail
+else:
+    raise AssertionError("upstream rate limit should surface as a safe draft failure")
+print("OK: DOCX import, revision route, safe draft HTTP diagnostics and auth")
