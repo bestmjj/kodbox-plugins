@@ -97,6 +97,18 @@ class aiRagLitePlugin extends PluginBase {
         $err = curl_error($ch);
         curl_close($ch);
         if ($response === false || $status !== 200) {
+            // The RAG draft endpoint reports a sanitized provider HTTP status.
+            // Relay only a strictly validated status number; never show an
+            // upstream response body, model endpoint, token, or prompt.
+            if (in_array($route,array('draft','revise'),true) && $status===502 &&
+                is_string($response)) {
+                $detail=json_decode($response,true);
+                $reason=is_array($detail) ? strval($detail['detail'] ?? '') : '';
+                if (preg_match('/^文档生成模型上游接口返回 HTTP ([1-5][0-9]{2})$/u',$reason,$m)) {
+                    show_json('文档生成失败：上游模型 HTTP '.$m[1].
+                        '（RAG HTTP 502）。如为临时故障可稍后重试。',false);
+                }
+            }
             show_json('RAG 服务不可用 (HTTP '.intval($status).'): '.($err ? $err : '检查服务日志'), false);
         }
         $data = json_decode($response, true);
