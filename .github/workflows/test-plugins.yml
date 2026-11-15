@@ -32,6 +32,8 @@ jobs:
         run: php aiRagLite/tests/test_asset_query.php
       - name: Agent tool argument validation tests
         run: php aiRagLite/tests/test_agent_tool_args.php
+      - name: Agent verified RAG-indexed file read
+        run: php aiRagLite/tests/test_indexed_agent_read.php
       - name: AI writer storage tests
         run: php aiRagLite/tests/test_writer.php
       - name: RAG-first file lookup ranking and deduplication
