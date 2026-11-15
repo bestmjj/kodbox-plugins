@@ -1,13 +1,14 @@
-# aiRagLite v0.8.0 — 有工具调用能力的 KodBox AI Agent
+# aiRagLite v0.8.1 — 有工具调用能力的 KodBox AI Agent
 
 ## 与 v0.7.0 的区别
 
-v0.7.0 默认聊天，但主要还是 RAG 问答 + 文档编辑器，没有真正调用 KodBox 文件工具。v0.8.0 增加独立 Agent tool-call 通道：模型发起函数调用，KodBox 当前管理员会话检验权限并执行，结果回传模型，多轮调用上限 4 次。
+v0.7.0 默认聊天，但主要还是 RAG 问答 + 文档编辑器，没有真正调用 KodBox 文件工具。v0.8.1 增加独立 Agent tool-call 通道：模型发起函数调用，KodBox 当前管理员会话检验权限并执行，结果回传模型，多轮调用上限 4 次。
 
 | Agent 工具 | 可执行操作 | 限制 |
 |---|---|---|
 | list_folder | 列出个人空间里的文件/子目录，不限于 RAG 文件格式 | 每类最多100项，只读 |
 | read_document | 读取个人空间 Markdown/TXT/Word 正文 | 单次给模型前5500字符，标注截断；Word 不保留全部格式 |
+| find_files | 使用现有 RAG 索引快速定位文件，文件名优先排序并去重 | 来源路径是 WebDAV 索引位置，不代表已验证访问权限；打开时另行确认 |
 | search_knowledge | 检索已有 RAG 知识库片段 | 只是可选搜索工具；打开原文件仍受 KodBox 权限限制 |
 | calculate_expenses | 按文件中的明确币种进行确定性费用核算 | CNY/USD 分别统计；模糊记录不算 |
 | prepare_edit | 生成已有文档修改建议 | 在同一聊天窗口并排审阅原文和建议稿，需确认才能保存 |
@@ -17,13 +18,13 @@ v0.7.0 默认聊天，但主要还是 RAG 问答 + 文档编辑器，没有真�
 
 ## 界面入口与原有文档
 
-右下角进入主 AI 助手；旧的搜索界面仍可从“高级搜索”打开。旧搜索页面原来标成「✨ AI 助手」但实际打开文档编辑器，这是 v0.7.0 的真实 UI 缺陷。v0.8.0 把它明确改名为「文档编辑」，文档编辑器顶部增加「返回 AI 助手」，可携带已打开的文件和未发送的写作要求回到聊天。
+右下角进入主 AI 助手；旧的搜索界面仍可从“高级搜索”打开。旧搜索页面原来标成「✨ AI 助手」但实际打开文档编辑器，这是 v0.7.0 的真实 UI 缺陷。v0.8.1 把它明确改名为「文档编辑」，文档编辑器顶部增加「返回 AI 助手」，可携带已打开的文件和未发送的写作要求回到聊天。
 
 若 KodBox 当前页面 URL 有 #fileView&path=...，会尝试根据当前用户可访问的个人空间枚举定位文件。受目录数量上限影响无法定位时仍可使用“关联文件”，不应声称所有文件都会自动关联。
 
 ## 升级
 
-下载 Release 的 `aiRagLite-v0.8.0.zip` 和 `aiRagLite-v0.8.0-rag-writer.zip`。
+下载 Release 的 `aiRagLite-v0.8.1.zip` 和 `aiRagLite-v0.8.1-rag-writer.zip`。
 更新插件目录，配套后端安装脚本会备份已有 rag 文件并增加 `agent_runtime.py`；随后仅重建 rag-api：
 
 ~~~sh
@@ -32,6 +33,12 @@ cd /opt/backup/data/hostdzire/compose/kodbox-ai-rag
 docker compose up -d --build --no-deps rag-api
 docker compose exec -T rag-api python -c 'from rag.api import app; assert "/v1/agent-step" in [r.path for r in app.routes]; print("Agent OK")'
 ~~~
+
+## 查找体验修复（v0.8.1）
+
+输入“短视频流程”或明确的找文件请求时，默认先用现有 RAG 索引定位文件，**不再让模型随机遍历 [project] 文件夹**。UI 展示命中的候选文件、路径和摘要；点击候选结果时调用已有 `resolve` 权限检查后打开原件。索引没找到只表示目前没有索引命中，不能据此声称 KodBox 中不存在文件。
+
+普通跨文档分析继续使用 `search_knowledge`，已有文件操作继续使用 `read_document`、`prepare_edit` 等真实工具。明确要求“列出我的文档下面有什么”才走 `list_folder`。
 
 ## 验收
 
