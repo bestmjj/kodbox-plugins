@@ -480,6 +480,22 @@ kodReady.push(function () {
                     return;
                 }
                 var tool=step.tool,args=step.arguments;
+                // Accept only the bounded query for read-only RAG tools.
+                // Models sometimes include unsupported optional fields.
+                if(tool==='find_files' || tool==='search_knowledge') {
+                    var q=typeof args.query==='string'?args.query:
+                        (typeof args.q==='string'?args.q:question);
+                    args={query:q.trim()};
+                    if(!args.query) {fail('模型没有提供有效的检索关键词');return;}
+                }
+                var repeated=observations.some(function(obs) {
+                    return obs.tool===tool &&
+                        JSON.stringify(obs.arguments)===JSON.stringify(args);
+                });
+                if(repeated) {
+                    fail('工具重复请求了相同参数，已停止，避免循环调用。');
+                    return;
+                }
                 var display=toolLabels[tool];
                 if(args.name)display+='：'+String(args.name).slice(0,60);
                 else if(args.folder)display+='：'+String(args.folder).slice(0,60);
@@ -509,6 +525,17 @@ kodReady.push(function () {
                             });
                         });
                     }
+                    // A short lookup request needs the actual candidate files,
+                    // not another expensive model turn that may repeat find_files.
+                    if(tool==='find_files' && !attached && question.length<=45 &&
+                        !/总结|分析|比较|对比|计算|统计|写|修改|整理/.test(question)) {
+                        var hits=Array.isArray(result.results)?result.results:[];
+                        finish(hits.length?
+                            '在 RAG 索引中找到 '+hits.length+' 个候选文件，点击文件可验证权限后打开。':
+                            'RAG 索引没有找到与“'+question+'”匹配的文件。请尝试“高级搜索”；这不代表 KodBox 中没有相关资料。',
+                            {mode:'file_lookup',sources:sources,lookup_results:hits});
+                        return;
+                    }
                     observations.push({
                         tool:tool,arguments:args,
                         result:JSON.stringify(result).slice(0,6200)
@@ -517,13 +544,10 @@ kodReady.push(function () {
                 },function(err){
                     if(id!==requestId)return;
                     trace.text('× '+display+' · '+err);
-                    // A failed tool is still an observation. The model can
-                    // choose another safe tool, instead of silent failure.
-                    observations.push({
-                        tool:tool,arguments:args,
-                        result:'工具执行失败：'+String(err).slice(0,400)
-                    });
-                    next(observations.length>=4);
+                    // A failed tool is not evidence that a file is missing.
+                    // Do not send the same invalid call around four times or
+                    // let the model fabricate a "not found" answer.
+                    fail(display+'失败：'+String(err).slice(0,400));
                 });
             },fail);
         }
