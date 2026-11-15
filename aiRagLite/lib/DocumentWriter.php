@@ -103,6 +103,88 @@ class AiRagLiteDocumentWriter {
         }
         return array('folder'=>$relative,'folders'=>$result,'files'=>$files);
     }
+    /**
+     * Enumerate ALL normal KodBox files, not just RAG-indexed documents.
+     * Listing and reading are two different tools: unsupported file types may
+     * appear in the inventory, but cannot be opened as document text.
+     */
+    public static function agentList($relative='') {
+        $path=self::resolveFolder($relative,false);
+        $listing=self::entriesIn($path);
+        $folders=array();$files=array();
+        foreach (($listing['folderList'] ?? array()) as $entry) {
+            if (!is_array($entry) || !isset($entry['name'],$entry['path']) ||
+                (isset($entry['isDelete']) && $entry['isDelete']=='1')) continue;
+            if (!Action('explorer.auth')->fileCan($entry['path'],'show')) continue;
+            $name=strval($entry['name']);
+            if ($name==='' || strpos($name,'/')!==false || strlen($name)>255) continue;
+            $folders[]=array('name'=>$name,'folder'=>($relative!==''?$relative.'/':'').$name);
+            if (count($folders)>=100) break;
+        }
+        foreach (($listing['fileList'] ?? array()) as $entry) {
+            if (!is_array($entry) || !isset($entry['name'],$entry['path']) ||
+                (isset($entry['isDelete']) && $entry['isDelete']=='1')) continue;
+            if (!Action('explorer.auth')->fileCan($entry['path'],'view')) continue;
+            $name=strval($entry['name']);
+            if ($name==='' || strpos($name,'/')!==false || strlen($name)>255) continue;
+            $files[]=array('name'=>$name,
+                'size'=>isset($entry['size'])?intval($entry['size']):null,
+                'readable_text'=>!!self::supportedExtension($name));
+            if (count($files)>=100) break;
+        }
+        return array('folder'=>$relative,'folders'=>$folders,'files'=>$files,
+            'limit'=>100,'note'=>'文件夹和文件均最多返回100项；未列出的项目不代表不存在。');
+    }
+
+    /**
+     * Convert only a same-user personal-space file URL path into a securely
+     * enumerated relative path. Never grant access based only on a URL hash.
+     */
+    public static function fromActiveFilePath($raw) {
+        if (!is_string($raw) || strlen($raw)>3500 || strpos($raw,"\0")!==false)
+            throw new RuntimeException('当前文件路径无效');
+        $target=KodIO::clear($raw);
+        // KodBox virtual paths are not hierarchical prefixes:
+        // a child folder may be {source:2002}, whereas the user's home is
+        // {source:1001}. Walk the visible personal tree rather than checking
+        // an invalid "{source:1001}/" prefix.
+        $queue=array(array('path'=>self::home(),'folder'=>'','depth'=>0));
+        $visited=array();$checked=0;
+        while ($queue && $checked<160) {
+            $item=array_shift($queue);
+            if (isset($visited[$item['path']])) continue;
+            $visited[$item['path']]=true;$checked++;
+            if (!Action('explorer.auth')->fileCan($item['path'],'show')) continue;
+            $listing=self::entriesIn($item['path']);
+            foreach (($listing['fileList'] ?? array()) as $entry) {
+                if (!is_array($entry) || !isset($entry['name'],$entry['path'])) continue;
+                if (KodIO::clear($entry['path'])!==$target) continue;
+                if (!self::supportedExtension($entry['name']) ||
+                    !Action('explorer.auth')->fileCan($entry['path'],'view'))
+                    throw new RuntimeException('当前文件格式不受支持或无访问权限');
+                // Re-enumerate its containing folder under current login.
+                $found=self::findDocument($item['folder'],$entry['name'],'view');
+                if (KodIO::clear($found['path'])!==$target)
+                    throw new RuntimeException('文件路径不匹配');
+                return array('folder'=>$item['folder'],'name'=>$entry['name']);
+            }
+            if ($item['depth']>=10) continue;
+            foreach (($listing['folderList'] ?? array()) as $entry) {
+                if (!is_array($entry) || !isset($entry['name'],$entry['path']) ||
+                    (isset($entry['isDelete']) && $entry['isDelete']=='1')) continue;
+                $name=strval($entry['name']);
+                if ($name==='' || $name==='.' || $name==='..' || strlen($name)>255 ||
+                    strpos($name,'/')!==false || strpos($name,"\\")!==false) continue;
+                if (!Action('explorer.auth')->fileCan($entry['path'],'show')) continue;
+                $queue[]=array('path'=>$entry['path'],
+                    'folder'=>($item['folder']!==''?$item['folder'].'/':'').$name,
+                    'depth'=>$item['depth']+1);
+                if (count($queue)>180) break;
+            }
+        }
+        throw new RuntimeException('个人空间内未找到此文件，或超过160个目录的遍历限制');
+    }
+
     private static function supportedExtension($name) {
         return is_string($name) && strlen($name)<=255 &&
             preg_match('/\.(md|markdown|txt|docx)$/i',$name) &&

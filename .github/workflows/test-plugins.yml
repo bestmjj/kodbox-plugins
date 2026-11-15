@@ -38,12 +38,13 @@ jobs:
           node aiRagLite/tests/test_writer_ui.cjs
           node aiRagLite/tests/test_assistant_ui.cjs
       - name: RAG writer Python syntax
-        run: python3 -m py_compile integrations/rag-writer/service/rag/drafting.py integrations/rag-writer/service/rag/assistant_chat.py
+        run: python3 -m py_compile integrations/rag-writer/service/rag/drafting.py integrations/rag-writer/service/rag/assistant_chat.py integrations/rag-writer/service/rag/agent_runtime.py
       - name: RAG AI assistant document revision tests
         run: |
           python3 -m pip install --quiet "python-docx>=1.1,<2" "fastapi>=0.110,<1" "pydantic>=2,<3" requests
           python3 integrations/rag-writer/tests/test_drafting.py
           python3 integrations/rag-writer/tests/test_assistant_chat.py
+          python3 integrations/rag-writer/tests/test_agent_runtime.py
       - name: Asset store tests
         run: php assetLedger/tests/test_store.php
       - name: Relation consistency regression tests

@@ -209,5 +209,16 @@ assert.equal(overw.payload.confirm,'backup-and-overwrite','explicit confirmation
 assert.equal(overw.payload.content,'# 原始文章\n\n新版段落');
 assert.match(one('#airaglite-writer-message').text(),/备份/);
 
+let returned=null;
+win.aiRagLiteSetActiveDocument=(folder,name,prompt)=>{returned={folder,name,prompt};};
+win.aiRagLiteOpenAssistant=()=>{win._agentOpened=true;};
+assert.match(one('#airaglite-writer-open').text(),/文档编辑/);
+assert.match(one('#airaglite-writer-heading').text(),/文档编辑器/);
+one('#airaglite-writer-back-to-assistant').trigger('click');
+assert.equal(win._agentOpened,true);
+assert.equal(returned.folder,'我的文档/学习');
+assert.equal(returned.name,'已有文章.md');
+assert.equal(one('#airaglite-writer-overlay').css('display'),'none');
+
 dom.window.close();
 console.log('OK: writer layout, file loading, AI revision, diff, undo, safe overwrite and existing flows');

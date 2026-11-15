@@ -2,12 +2,12 @@
   "id": "aiRagLite",
   "name": "AI 智能检索（自建）",
   "title": "AI 智能检索（自建）",
-  "version": "0.7.0",
+  "version": "0.8.0",
   "category": "tools",
   "source": {
     "className": "font-icon ri-search-eye-line bg-blue-6"
   },
-  "description": "KodBox AI 助手：以聊天为入口，支持关联文档后总结/连续问答/费用多币种核算，自动查 RAG 和本地数字资产。修改文章由 AI 提建议、差异确认后保存。当前 admin 会话授权，rag_reader 保持只读。",
+  "description": "KodBox AI Agent：模型主动调用列目录、读文件、搜索知识库、费用核算、生成文档修改/新建建议；写入必须用户审阅确认。当前文件权限隔离，rag_reader 只读。",
   "auther": {
     "copyright": "Community MVP",
     "homePage": "https://github.com/kalcaddle/kodbox"

@@ -16,6 +16,10 @@ if [ -f "$ROOT/service/rag/assistant_chat.py" ]; then
   cp "$ROOT/service/rag/assistant_chat.py" "$ROOT/service/rag/assistant_chat.py.before-chat-$STAMP"
 fi
 cp "$HERE/service/rag/assistant_chat.py" "$ROOT/service/rag/assistant_chat.py"
+if [ -f "$ROOT/service/rag/agent_runtime.py" ]; then
+  cp "$ROOT/service/rag/agent_runtime.py" "$ROOT/service/rag/agent_runtime.py.before-agent-$STAMP"
+fi
+cp "$HERE/service/rag/agent_runtime.py" "$ROOT/service/rag/agent_runtime.py"
 if ! grep -q "from .drafting import register_routes" "$API"; then
   printf "\n# AI writer\nfrom .drafting import register_routes\nregister_routes(app, cfg, authorize, retrieve)\n" >> "$API"
 fi
@@ -23,5 +27,5 @@ if ! grep -iq "^[[:space:]]*python-docx" "$REQ"; then
   cp "$REQ" "$REQ.before-writer-$STAMP"
   printf "\npython-docx>=1.1,<2\n" >> "$REQ"
 fi
-python3 -m py_compile "$API" "$ROOT/service/rag/drafting.py" "$ROOT/service/rag/assistant_chat.py"
+python3 -m py_compile "$API" "$ROOT/service/rag/drafting.py" "$ROOT/service/rag/assistant_chat.py" "$ROOT/service/rag/agent_runtime.py"
 echo "Installed. Build RAG API with: cd $ROOT && docker compose up -d --build --no-deps rag-api"

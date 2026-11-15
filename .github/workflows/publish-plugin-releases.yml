@@ -53,7 +53,7 @@ jobs:
           version = json.loads(Path('aiRagLite/package.json').read_text(encoding='utf-8'))['version']
           src = Path('integrations/rag-writer')
           out = Path('dist') / f'aiRagLite-v{version}-rag-writer.zip'
-          included = ['README.md', 'install.sh', 'service/rag/drafting.py', 'service/rag/assistant_chat.py']
+          included = ['README.md', 'install.sh', 'service/rag/drafting.py', 'service/rag/assistant_chat.py', 'service/rag/agent_runtime.py']
           with ZipFile(out, 'w', compression=ZIP_DEFLATED) as z:
               for name in included:
                   path = src / name
