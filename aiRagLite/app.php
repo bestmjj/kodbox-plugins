@@ -449,7 +449,7 @@ class aiRagLitePlugin extends PluginBase {
                         throw new RuntimeException('模型未返回可用修改稿');
                     $out=array('message'=>'已生成修改稿，原文没有变化，请审阅差异。',
                         'proposal'=>array('kind'=>'revision','folder'=>$folder,
-                            'name'=>$name,'content'=>$candidate));
+                            'name'=>$name,'content'=>$candidate,'hash'=>$doc['hash'],'format'=>$doc['format']));
                     break;
                 case 'prepare_new_document':
                     $title=AiRagLiteDocumentWriter::cleanTitle(strval($args['title'] ?? ''));
