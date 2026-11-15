@@ -393,12 +393,13 @@ kodReady.push(function () {
         chooseFolder(attached?attached.folder:'');
     }
     function closePicker() {browseId++;picker.hide();}
-    window.aiRagLiteSetActiveDocument=function(folder,name){
+    window.aiRagLiteSetActiveDocument=function(folder,name,question){
         if(pending){setStatus('请先等当前工具调用结束',true);return false;}
         if(typeof folder!=='string'||typeof name!=='string'||!name||name.length>255)return false;
         attached={folder:folder,name:name};
         updateFileLabel();
         reset('已关联 KodBox 文件：'+name+'。可以直接提问，无需重新生成草稿。');
+        if(typeof question==='string' && question.trim())input.val(question.trim().slice(0,1800));
         return true;
     };
     var lastDetectedHash='';
