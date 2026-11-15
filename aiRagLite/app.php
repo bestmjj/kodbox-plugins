@@ -339,7 +339,7 @@ class aiRagLitePlugin extends PluginBase {
 
         // Private AssetLedger data is handled locally, never sent as LLM
         // messages or replayed into external chat history.
-        if (!$cleanObs && $current===null) {
+        if (!$cleanObs) {
             $ledgerPath=dirname(__DIR__).'/assetLedger/lib/AssetLedgerStore.php';
             if (is_file($ledgerPath)) {
                 try {
