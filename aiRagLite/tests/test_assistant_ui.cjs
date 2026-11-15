@@ -50,6 +50,11 @@ win.kodApi={requestSend:function(route,payload,callback){
                 arguments:{query:'资阳联系人',limit:12,search_mode:'index',path:''}}});
             return;
         }
+        if(payload.message==='我要编辑短视频文章'){
+            callback({code:true,data:{kind:'tool',tool:'find_files',
+                arguments:{query:'短视频流程'}}});
+            return;
+        }
         const steps=JSON.parse(payload.observations_json);
         if(payload.message==='总结未关联今年费用') {
             const reply=steps.length===0?
@@ -140,9 +145,17 @@ win.kodApi={requestSend:function(route,payload,callback){
     }else if(route.endsWith('/writerOverwrite')){
         callback({code:true,data:{name:payload.name,backup:'2026年费用-before.md'}});
     }else if(route.endsWith('/agentCurrentFile')){
-        callback({code:true,data:{folder:'我的文档/账单',name:'2026年费用.md'}});
+        if(String(payload.path).includes('source:777')){
+            callback({code:true,data:{folder:'学习/短视频',name:'萌宠短视频流程.md'}});
+        }else{
+            callback({code:true,data:{folder:'我的文档/账单',name:'2026年费用.md'}});
+        }
     }else if(route.endsWith('/resolve')){
-        callback({code:true,data:{route:'#fileView&path=%7Bsource%3A1001%7D%2Fa.md'}});
+        if(String(payload.path).includes('萌宠短视频流程.md')){
+            callback({code:true,data:{route:'#fileView&path='+encodeURIComponent('{source:777}')}});
+        }else{
+            callback({code:true,data:{route:'#fileView&path=%7Bsource%3A1001%7D%2Fa.md'}});
+        }
     }else throw Error('Unknown API '+route);
 }};
 const source=fs.readFileSync(path.join(__dirname,'..','static','assistant.js'),'utf8');
@@ -233,6 +246,28 @@ assert.equal(calls.filter(x=>x.route.endsWith('/agentTool') &&
     x.payload.tool==='read_document').length,beforeDuplicate,
     'duplicate indexed filenames must not pick an arbitrary document');
 assert.match(one('#airaglite-chat-messages').text(),/多个同名文件/);
+
+// Edit intent must not silently bypass AI as an ordinary file title search.
+const editStepsBefore=calls.filter(x=>x.route.endsWith('/agentStep')).length;
+input.val('我要编辑短视频文章');send.trigger('click');
+assert.equal(calls.filter(x=>x.route.endsWith('/agentStep')).length,editStepsBefore+1,
+    'edit intent is routed through the language model');
+const editCandidate=$('.aic-action').filter(function(){
+    return $(this).text()==='关联并用 AI 编辑';
+}).last();
+assert.ok(editCandidate.length,'agent file discovery provides a verified-edit action');
+assert.match(one('#airaglite-chat-messages').text(),/请选择你要编辑的文章/);
+editCandidate.trigger('click');
+assert.ok(calls.some(x=>x.route.endsWith('/resolve') &&
+    x.payload.path.includes('萌宠短视频流程.md')),
+    'candidate is resolved under KodBox session before attaching');
+assert.ok(calls.some(x=>x.route.endsWith('/agentCurrentFile') &&
+    x.payload.path.includes('source:777')),
+    'verified source must map to an authorized personal document');
+assert.match(one('#airaglite-chat-file').text(),/萌宠短视频流程.md/);
+assert.equal(input.val(),'','vague edit request must not trigger an arbitrary rewrite');
+assert.match(one('#airaglite-chat-status').text(),/已验证并关联文件/);
+one('#airaglite-chat-detach').trigger('click');
 
 // Short file names should bypass blind directory wandering and use RAG
 // filename search exactly once, without any model tool-selection latency.
