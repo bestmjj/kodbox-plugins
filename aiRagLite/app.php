@@ -415,7 +415,7 @@ class aiRagLitePlugin extends PluginBase {
                         throw new RuntimeException('文件查询词过短或过长');
                     // Reuse the SAME indexed search endpoint as the proven RAG UI.
                     // WebDAV paths are suggestions only, never KodBox file permissions.
-                    $search=$this->backendData('search',array('q'=>$q,'limit'=>16));
+                    $search=$this->backendData('search',array('q'=>$q,'limit'=>8));
                     require_once(__DIR__.'/lib/IndexedFileLocator.php');
                     $out=AiRagLiteIndexedFileLocator::rank($search,$q,8);
                     break;
