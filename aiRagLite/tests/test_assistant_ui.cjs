@@ -23,6 +23,7 @@ win.aiRagLiteOpenWriterRevision=(folder,name,content)=>{opened={kind:'revision',
 win.aiRagLiteOpenWriterDraft=(title,content)=>{opened={kind:'new',title,content};};
 const calls=[];
 let failed=false;
+let failedTool=false;
 win.kodApi={requestSend:function(route,payload,callback){
     calls.push({route,payload});
     if(route.endsWith('/writerFolders')){
@@ -43,6 +44,11 @@ win.kodApi={requestSend:function(route,payload,callback){
         }
         if(payload.message==='简化回答测试'){
             callback({code:true,data:{answer:'无 kind 的回答正常'}});return;
+        }
+        if(payload.message==='资阳联系人'){
+            callback({code:true,data:{kind:'tool',tool:'find_files',
+                arguments:{query:'资阳联系人',limit:12,search_mode:'index',path:''}}});
+            return;
         }
         const steps=JSON.parse(payload.observations_json);
         if(payload.message.includes('资产')){
@@ -69,6 +75,7 @@ win.kodApi={requestSend:function(route,payload,callback){
                 answer:payload.file_name?'已核算今年费用':'找到 [1] 所在文件'}});
         }
     }else if(route.endsWith('/agentTool')){
+        if(failedTool){callback({code:false,data:'不支持的工具或参数'});return;}
         const args=JSON.parse(payload.arguments_json);
         if(payload.tool==='prepare_edit'){
             callback({code:true,data:{message:'修改稿已完成，原文件未改变。',
@@ -146,6 +153,32 @@ assert.doesNotMatch(one('#airaglite-chat-status').text(),/失败/);
 input.val('简化回答测试');send.trigger('click');
 assert.match(one('#airaglite-chat-messages').text(),/无 kind 的回答正常/);
 assert.equal(send.prop('disabled'),false);
+
+// A read-only tool returned by the model may include unsupported extras.
+const stepsBeforeContact=calls.filter(x=>x.route.endsWith('/agentStep')).length;
+const toolsBeforeContact=calls.filter(x=>x.route.endsWith('/agentTool')).length;
+input.val('资阳联系人');send.trigger('click');
+assert.equal(calls.filter(x=>x.route.endsWith('/agentStep')).length,
+    stepsBeforeContact+1,'one model step for contact lookup');
+const contactTools=calls.filter(x=>x.route.endsWith('/agentTool'));
+assert.equal(contactTools.length,toolsBeforeContact+1,'one search, no repeat');
+const contact=contactTools.at(-1);
+assert.equal(contact.payload.tool,'find_files');
+assert.deepEqual(JSON.parse(contact.payload.arguments_json),{query:'资阳联系人'},
+    'strip optional model parameters before PHP');
+assert.match(one('#airaglite-chat-messages').text(),/候选文件/);
+assert.equal(send.prop('disabled'),false);
+
+// Rejected tool operations must not be retried or misreported as missing files.
+failedTool=true;
+const beforeBadStep=calls.filter(x=>x.route.endsWith('/agentStep')).length;
+const beforeBadTool=calls.filter(x=>x.route.endsWith('/agentTool')).length;
+input.val('资阳联系人');send.trigger('click');
+assert.equal(calls.filter(x=>x.route.endsWith('/agentStep')).length,beforeBadStep+1);
+assert.equal(calls.filter(x=>x.route.endsWith('/agentTool')).length,beforeBadTool+1);
+assert.match(one('#airaglite-chat-status').text(),/不支持的工具或参数/);
+assert.match(one('#airaglite-chat-messages').text(),/操作未完成/);
+failedTool=false;
 
 // Short file names should bypass blind directory wandering and use RAG
 // filename search exactly once, without any model tool-selection latency.
