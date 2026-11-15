@@ -5,7 +5,7 @@ from typing import Any
 import requests
 from fastapi import Depends, HTTPException
 from pydantic import BaseModel, Field, ConfigDict
-from .assistant_chat import ChatTurn
+from .assistant_chat import ChatTurn, expense_summary
 from .llm import _validate_endpoint
 
 log=logging.getLogger(__name__)
@@ -129,7 +129,15 @@ def call_agent_model(cfg,data):
     else:raise ValueError("当前模型提供方不支持 Agent 工具调用")
     return extract_action(message,bool(tools))
 
+class ExpenseRequest(BaseModel):
+    content:str=Field(min_length=1,max_length=100000)
+    question:str=Field(default="统计费用",max_length=1800)
+
 def register_agent_routes(app,cfg,authorize):
+    @app.post("/v1/agent-expenses",dependencies=[Depends(authorize)])
+    def agent_expenses(req:ExpenseRequest):
+        return {"summary":expense_summary(req.content,req.question)}
+
     @app.post("/v1/agent-step",dependencies=[Depends(authorize)])
     def agent_step(req:AgentStepRequest):
         if not cfg.chat_enabled:
