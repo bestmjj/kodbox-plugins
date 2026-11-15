@@ -10,8 +10,8 @@ v0.7.0 默认聊天，但主要还是 RAG 问答 + 文档编辑器，没有真�
 | read_document | 读取个人空间 Markdown/TXT/Word 正文 | 单次给模型前5500字符，标注截断；Word 不保留全部格式 |
 | search_knowledge | 检索已有 RAG 知识库片段 | 只是可选搜索工具；打开原文件仍受 KodBox 权限限制 |
 | calculate_expenses | 按文件中的明确币种进行确定性费用核算 | CNY/USD 分别统计；模糊记录不算 |
-| prepare_edit | 生成已有文档修改建议 | 只显示差异，需明确确认才能保存 |
-| prepare_new_document | 起草新文档 | 需先在编辑器检查，再确认保存 |
+| prepare_edit | 生成已有文档修改建议 | 在同一聊天窗口并排审阅原文和建议稿，需确认才能保存 |
+| prepare_new_document | 起草新文档 | 在聊天审阅框中修改正文并确认后才保存 |
 
 **安全原则**：`rag_reader` 仍为只读索引账号。Agent 的文件工具走 KodBox 当前管理员会话，文件夹定位通过目录枚举检查权限。模型不持有 KodBox 密钥，也没有任意命令、删除、移动、覆盖操作权限。
 
@@ -37,7 +37,7 @@ docker compose exec -T rag-api python -c 'from rag.api import app; assert "/v1/a
 
 1. 右下角进入 Agent，说“列出个人空间我的文档下面有哪些文件”，应显示正在调用 list_folder，并使用真实目录清单回答。
 2. 打开已有 `2026年费用.md` 后点击「返回 AI 助手」，直接问“总结今年费用”；应调用 calculate_expenses，分别给出币种和未计入记录。
-3. 说“把这份文档第三部分重新整理”，应先执行 prepare_edit，并要求您审阅差异，**不会直接保存**。
+3. 说“把这份文档第三部分重新整理”，应先执行 prepare_edit，并在当前对话展示原文和可编辑建议稿，**不会直接保存**。
 4. 测试跨文件知识库问答，确认 search_knowledge 工具仍可用。
 5. 测试 AssetLedger 资产问题，必须本地直接答复，不能外发台账或将其注入下轮模型上下文。
 
