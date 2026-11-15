@@ -300,6 +300,188 @@ class aiRagLitePlugin extends PluginBase {
         ));
     }
 
+    /**
+     * Agent model step: uses only the existing RAG key, never KodBox credentials.
+     * Tool decisions are inert until agentTool validates/executes them.
+     */
+    public function agentStep() {
+        KodUser::checkRoot();
+        if (($_SERVER['REQUEST_METHOD'] ?? '')!=='POST') show_json('POST only',false);
+        $message=trim(strval(Input::get('message')));
+        if ($message==='' || strlen($message)>5400) show_json('任务内容长度不符合限制',false);
+        $history=json_decode(strval(Input::get('history_json')),true);
+        $observations=json_decode(strval(Input::get('observations_json')),true);
+        if (!is_array($history)) $history=array();
+        if (!is_array($observations)) $observations=array();
+        $cleanHistory=array();
+        foreach (array_slice($history,-6) as $turn) {
+            if (!is_array($turn) || !isset($turn['role'],$turn['content']) ||
+                !in_array($turn['role'],array('user','assistant'),true) ||
+                !is_string($turn['content']) || strlen($turn['content'])>5400) continue;
+            $cleanHistory[]=array('role'=>$turn['role'],'content'=>$turn['content']);
+        }
+        $cleanObs=array();
+        foreach (array_slice($observations,-5) as $obs) {
+            if (!is_array($obs) || !isset($obs['tool'],$obs['arguments'],$obs['result']) ||
+                !is_string($obs['tool']) || !is_array($obs['arguments']) ||
+                !is_string($obs['result'])) continue;
+            $cleanObs[]=array('tool'=>substr($obs['tool'],0,50),
+                'arguments'=>$obs['arguments'],
+                'result'=>substr($obs['result'],0,7000));
+        }
+        $folder=strval(Input::get('file_folder'));
+        $name=strval(Input::get('file_name'));
+        $current=null;
+        if ($name!=='' && strlen($name)<=255 && strlen($folder)<=2048) {
+            // Tool results are authoritative; these strings are only hints.
+            $current=array('folder'=>$folder,'name'=>$name);
+        }
+
+        // Private AssetLedger data is handled locally, never sent as LLM
+        // messages or replayed into external chat history.
+        if (!$cleanObs && $current===null) {
+            $ledgerPath=dirname(__DIR__).'/assetLedger/lib/AssetLedgerStore.php';
+            if (is_file($ledgerPath)) {
+                try {
+                    require_once(__DIR__.'/lib/AssetLedgerQuery.php');
+                    require_once($ledgerPath);
+                    if (defined('USER_SYSTEM')) {
+                        $store=new AssetLedgerStore(USER_SYSTEM.'assetLedger/');
+                        $inventory=$store->all();
+                        if (AiRagLiteAssetQuery::wantsAssets($message,$inventory)) {
+                            $result=AiRagLiteAssetQuery::run($message,$inventory);
+                            show_json(array('kind'=>'final','answer'=>$result['answer'],
+                                'mode'=>'asset_live','sources'=>array()),true);
+                        }
+                    }
+                } catch (Exception $exc) {
+                    if (preg_match('/数字资产|资产台账|资产关联|我的资产/u',$message))
+                        show_json('AssetLedger 本地查询失败，请检查资产插件状态',false);
+                }
+            }
+        }
+        $force=strval(Input::get('force_final'))==='1';
+        $this->requestBackend('agent-step',array(
+            'message'=>$message,'history'=>$cleanHistory,'observations'=>$cleanObs,
+            'current_file'=>$current,'force_final'=>$force
+        ));
+    }
+
+    /**
+     * The model never gets direct write permissions. All tools are authorized
+     * under the current KodBox admin session, with strict tool-name allowlist.
+     */
+    public function agentTool() {
+        KodUser::checkRoot();
+        if (($_SERVER['REQUEST_METHOD'] ?? '')!=='POST') show_json('POST only',false);
+        $tool=strval(Input::get('tool'));
+        $raw=Input::get('arguments_json');
+        if (!is_string($raw) || strlen($raw)>3500) show_json('工具参数长度无效',false);
+        $args=json_decode($raw,true);
+        $allowed=array('list_folder','read_document','search_knowledge',
+            'calculate_expenses','prepare_edit','prepare_new_document');
+        if (!in_array($tool,$allowed,true) || !is_array($args) || count($args)>3)
+            show_json('不支持的工具或参数',false);
+        foreach ($args as $key=>$value) {
+            if (!is_string($key) || !is_string($value) || strlen($value)>2048)
+                show_json('工具参数必须为限定长度的字符串',false);
+        }
+        $folder=isset($args['folder'])?$args['folder']:'';
+        $name=isset($args['name'])?$args['name']:'';
+        $config=$this->getConfig();
+        $base=rtrim(trim(strval($config['serviceUrl'] ?? '')),'/');
+        $key=trim(strval($config['serviceKey'] ?? ''));
+        require_once(__DIR__.'/lib/DocumentWriter.php');
+        try {
+            switch ($tool) {
+                case 'list_folder':
+                    if (!array_key_exists('folder',$args)) throw new RuntimeException('缺少文件夹参数');
+                    $out=AiRagLiteDocumentWriter::agentList($folder);
+                    break;
+                case 'read_document':
+                    if (!$name) throw new RuntimeException('缺少具体文件名');
+                    $doc=AiRagLiteDocumentWriter::readDocument($folder,$name,$base,$key);
+                    $original=$doc['content'];
+                    $length=function_exists('mb_strlen')?mb_strlen($original,'UTF-8'):strlen($original);
+                    $truncated=$length>5500;
+                    $body=$truncated?(function_exists('mb_substr')?
+                        mb_substr($original,0,5500,'UTF-8'):substr($original,0,5500)):$original;
+                    $out=array('folder'=>$folder,'name'=>$name,'content'=>$body,
+                        'truncated'=>$truncated,'total_chars'=>$length);
+                    break;
+                case 'search_knowledge':
+                    $q=trim(strval($args['query'] ?? ''));
+                    if (strlen($q)<2 || strlen($q)>900)
+                        throw new RuntimeException('知识库搜索词过短或过长');
+                    $search=$this->backendData('search',array('q'=>$q,'limit'=>8));
+                    $hits=is_array($search['results'] ?? null)?$search['results']:array();
+                    $found=array();
+                    foreach (array_slice($hits,0,8) as $h) {
+                        if (!is_array($h)) continue;
+                        $found[]=array('name'=>strval($h['name'] ?? ''),
+                            'path'=>strval($h['path'] ?? ''),
+                            'location'=>strval($h['location'] ?? ''),
+                            'snippet'=>substr(strval($h['snippet'] ?? ''),0,600));
+                    }
+                    $out=array('query'=>$q,'results'=>$found,
+                        'note'=>'仅是索引片段。打开原文件仍须 KodBox 会话权限校验。');
+                    break;
+                case 'calculate_expenses':
+                    if (!$name) throw new RuntimeException('缺少费用文件名');
+                    $doc=AiRagLiteDocumentWriter::readDocument($folder,$name,$base,$key);
+                    $summary=$this->backendData('agent-expenses',array(
+                        'content'=>$doc['content'],'question'=>'统计费用总计'));
+                    $out=array('folder'=>$folder,'name'=>$name,
+                        'summary'=>$summary['summary'] ?? null);
+                    break;
+                case 'prepare_edit':
+                    if (!$name) throw new RuntimeException('缺少编辑文件');
+                    $instructions=trim(strval($args['instructions'] ?? ''));
+                    if (strlen($instructions)<3 || strlen($instructions)>2000)
+                        throw new RuntimeException('修改要求无效');
+                    $doc=AiRagLiteDocumentWriter::readDocument($folder,$name,$base,$key);
+                    $body=$doc['content'];
+                    if (strlen($body)>14000) throw new RuntimeException('原文太长，请分段修改');
+                    $changed=$this->backendData('revise',array(
+                        'content'=>$body,'instructions'=>$instructions,'scope'=>'full'));
+                    $candidate=strval($changed['content'] ?? '');
+                    if (trim($candidate)==='' || strlen($candidate)>50000)
+                        throw new RuntimeException('模型未返回可用修改稿');
+                    $out=array('message'=>'已生成修改稿，原文没有变化，请审阅差异。',
+                        'proposal'=>array('kind'=>'revision','folder'=>$folder,
+                            'name'=>$name,'content'=>$candidate));
+                    break;
+                case 'prepare_new_document':
+                    $title=AiRagLiteDocumentWriter::cleanTitle(strval($args['title'] ?? ''));
+                    $instructions=trim(strval($args['instructions'] ?? ''));
+                    if (strlen($instructions)<3 || strlen($instructions)>2000)
+                        throw new RuntimeException('写作要求无效');
+                    $draft=$this->backendData('draft',array('topic'=>$title,
+                        'requirements'=>$instructions,'use_sources'=>false));
+                    $body=strval($draft['content'] ?? '');
+                    if (trim($body)==='') throw new RuntimeException('模型未生成草稿');
+                    $out=array('message'=>'已生成待审核草稿，尚未保存到 KodBox。',
+                        'proposal'=>array('kind'=>'new','title'=>$title,'content'=>$body));
+                    break;
+            }
+            show_json($out,true);
+        } catch (Exception $exc) {
+            show_json('工具执行失败：'.$exc->getMessage(),false);
+        }
+    }
+
+    public function agentCurrentFile() {
+        KodUser::checkRoot();
+        if (($_SERVER['REQUEST_METHOD'] ?? '')!=='POST') show_json('POST only',false);
+        require_once(__DIR__.'/lib/DocumentWriter.php');
+        try {
+            $out=AiRagLiteDocumentWriter::fromActiveFilePath(Input::get('path'));
+            show_json($out,true);
+        } catch (Exception $exc) {
+            show_json('无法关联当前文件：'.$exc->getMessage(),false);
+        }
+    }
+
     public function search(){ $this->query('search'); }
     public function ask(){ $this->query('ask'); }
     public function status(){ $this->requestBackend('status', null, 'GET'); }
