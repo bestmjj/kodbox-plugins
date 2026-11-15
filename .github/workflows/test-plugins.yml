@@ -32,6 +32,8 @@ jobs:
         run: php aiRagLite/tests/test_asset_query.php
       - name: AI writer storage tests
         run: php aiRagLite/tests/test_writer.php
+      - name: RAG-first file lookup ranking and deduplication
+        run: php aiRagLite/tests/test_indexed_file_locator.php
       - name: AI writer UI interaction tests
         run: |
           npm install --no-save --no-package-lock jsdom@24 jquery@3
