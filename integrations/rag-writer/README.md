@@ -1,42 +1,50 @@
-# aiRagLite V0.7.0 — 对话式 KodBox AI 助手
+# aiRagLite v0.8.0 — 有工具调用能力的 KodBox AI Agent
 
-## 实现范围
+## 与 v0.7.0 的区别
 
-- 以聊天为默认入口，支持与模型多轮追问，浏览器内临时保存最近对话，不把历史持久化到服务器。
-- 在 KodBox 当前管理员会话中**主动关联**个人空间 MD/TXT/DOCX：AI 可对当前文件总结、回答问题。聊天接口不会修改原文件。
-- 对费用表使用明确的金额列与币种标签做确定性统计：人民币和美元独立显示；不计入含糊、不带币种或多金额的单元格。模型没有证据时应明确说明。
-- 没有关联文件时查询 RAG 知识库，附可点击的引用来源；数字资产问题仍由 KodBox PHP 读取 AssetLedger 并本地回答，不上传资产台账给 AI。
-- 明确要求修改已关联文章时，只产生候选修改稿；点“查看差异并确认”会进入现有文档编辑器，检查、应用并手动保存。Word 不能直接覆盖原件。
-- 明确要求创建新文章时生成草稿，点“在编辑器中检查并保存”后才创建文件。原始搜索界面和写作工具均从聊天窗口的“高级搜索 / 文档编辑”进入。
+v0.7.0 默认聊天，但主要还是 RAG 问答 + 文档编辑器，没有真正调用 KodBox 文件工具。v0.8.0 增加独立 Agent tool-call 通道：模型发起函数调用，KodBox 当前管理员会话检验权限并执行，结果回传模型，多轮调用上限 4 次。
 
-## 升级 / 首次部署
+| Agent 工具 | 可执行操作 | 限制 |
+|---|---|---|
+| list_folder | 列出个人空间里的文件/子目录，不限于 RAG 文件格式 | 每类最多100项，只读 |
+| read_document | 读取个人空间 Markdown/TXT/Word 正文 | 单次给模型前5500字符，标注截断；Word 不保留全部格式 |
+| search_knowledge | 检索已有 RAG 知识库片段 | 只是可选搜索工具；打开原文件仍受 KodBox 权限限制 |
+| calculate_expenses | 按文件中的明确币种进行确定性费用核算 | CNY/USD 分别统计；模糊记录不算 |
+| prepare_edit | 生成已有文档修改建议 | 只显示差异，需明确确认才能保存 |
+| prepare_new_document | 起草新文档 | 需先在编辑器检查，再确认保存 |
 
-1. 从 GitHub Release 下载 **aiRagLite-v0.7.0.zip** 和 **aiRagLite-v0.7.0-rag-writer.zip**。
-2. 备份当前 aiRagLite 插件目录，解压插件 ZIP 并覆盖插件文件。
-3. 解压 RAG 后端 ZIP，并执行（请根据实际解压目录修改路径）：
+**安全原则**：`rag_reader` 仍为只读索引账号。Agent 的文件工具走 KodBox 当前管理员会话，文件夹定位通过目录枚举检查权限。模型不持有 KodBox 密钥，也没有任意命令、删除、移动、覆盖操作权限。
+
+## 界面入口与原有文档
+
+右下角进入主 AI 助手；旧的搜索界面仍可从“高级搜索”打开。旧搜索页面原来标成「✨ AI 助手」但实际打开文档编辑器，这是 v0.7.0 的真实 UI 缺陷。v0.8.0 把它明确改名为「文档编辑」，文档编辑器顶部增加「返回 AI 助手」，可携带已打开的文件和未发送的写作要求回到聊天。
+
+若 KodBox 当前页面 URL 有 #fileView&path=...，会尝试根据当前用户可访问的个人空间枚举定位文件。受目录数量上限影响无法定位时仍可使用“关联文件”，不应声称所有文件都会自动关联。
+
+## 升级
+
+下载 Release 的 `aiRagLite-v0.8.0.zip` 和 `aiRagLite-v0.8.0-rag-writer.zip`。
+更新插件目录，配套后端安装脚本会备份已有 rag 文件并增加 `agent_runtime.py`；随后仅重建 rag-api：
 
 ~~~sh
 sh /tmp/rag-writer/install.sh /opt/backup/data/hostdzire/compose/kodbox-ai-rag
 cd /opt/backup/data/hostdzire/compose/kodbox-ai-rag
 docker compose up -d --build --no-deps rag-api
-docker compose exec -T rag-api python -c 'from rag.api import app; assert "/v1/assistant-chat" in [r.path for r in app.routes]; print("chat endpoint OK")'
+docker compose exec -T rag-api python -c 'from rag.api import app; assert "/v1/agent-step" in [r.path for r in app.routes]; print("Agent OK")'
 ~~~
 
-安装脚本会备份 api.py、drafting.py、assistant_chat.py，复制新模块并保持现有 X-RAG-Key、模型配置、索引、WebDAV 权限和持久化卷。**已安装 v0.6.0 的服务器只需更新上述后端文件并重建 rag-api，不重建其他服务。**
+## 验收
 
-## 使用
+1. 右下角进入 Agent，说“列出个人空间我的文档下面有哪些文件”，应显示正在调用 list_folder，并使用真实目录清单回答。
+2. 打开已有 `2026年费用.md` 后点击「返回 AI 助手」，直接问“总结今年费用”；应调用 calculate_expenses，分别给出币种和未计入记录。
+3. 说“把这份文档第三部分重新整理”，应先执行 prepare_edit，并要求您审阅差异，**不会直接保存**。
+4. 测试跨文件知识库问答，确认 search_knowledge 工具仍可用。
+5. 测试 AssetLedger 资产问题，必须本地直接答复，不能外发台账或将其注入下轮模型上下文。
 
-1. 使用 admin 登录 KodBox，强制刷新后点击右下角“AI 助手”。
-2. 点击“关联文件”依次进入个人空间/我的文档/学习/短视频，选择您要分析的 md 文件；随后直接说“总结内容、指出未验证的步骤”。
-3. 分析 `2026年费用.md` 时，关联后说“按币种总结费用”，金额统计独立展示，不能把人民币与美元合并。
-4. 继续追问，不需要重新选择检索模式。查询 AssetLedger 时先“取消关联”，资产数据保持本地。
-5. 说“帮我润色这篇文章”，审阅建议后点“查看差异并确认”进入编辑器；未应用和未确认保存前原件保持不变。
+## 暂未实现
 
-## 本阶段限制
-
-- 当前仍需手动关联文档；**尚未**自动注入到 KodBox 原生 Markdown 编辑器或识别其未保存修改。
-- Word 正文导入会丢失图片、批注和复杂排版；只支持另存新版本。
-- 需要使用原有已配置的 LLM。若配置了外部模型 API，您主动关联的文件内容会发送给该模型；请注意敏感信息。
-- 如果文档超过 6000 字符，本轮模型只看到前段；界面会提示截断。单次全文修改过长时会拒绝，请用已有编辑器分段修改。
-- 金额核算只识别明确的 Markdown 表格金额列和币种；不识别的记录会显示未计入。不同币种不做汇率换算。
-- 没有实现自由文件管理 Agent、自动移动/删除或任意命令执行；该版本以只读对话、受控写入为主。
+- 完整企业版的自定义 Agent / MCP Server、多模态、模型管理、自动邮件发送等功能。
+- 自动移动、批量重命名、删除文件（需要额外的操作计划和人工审批设计）。
+- 所有 KodBox 弹窗内的未保存编辑内容自动同步（目前只能关联已保存原文）。
+- 当前模型若缺乏 tool_calls 能力，可能只能普通问答，不能完成文件工具操作；本版会明确报告模型不兼容。请使用支持函数调用的模型。
+- Word 编辑的复杂格式/图片无法无损更新原件。
