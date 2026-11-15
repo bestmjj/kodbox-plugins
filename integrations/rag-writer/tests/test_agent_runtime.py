@@ -27,7 +27,7 @@ spec=importlib.util.spec_from_file_location("rag.agent_runtime",root/"service"/"
 agent=importlib.util.module_from_spec(spec)
 spec.loader.exec_module(agent)
 assert len(agent.TOOL_DEFINITIONS)>=5
-assert len(agent.ALLOWED)==6
+assert len(agent.ALLOWED)==7
 req=agent.AgentStepRequest(message="帮我总结文件费用",
     current_file={"folder":"我的文档/财务","name":"2026年费用.md"},
     history=[ChatTurn(role="user",content="这里是我的文档")])
@@ -42,6 +42,12 @@ except ValidationError:pass
 else:raise AssertionError("oversized tool output accepted")
 
 call={"function":{"name":"list_folder","arguments":"{\"folder\":\"我的文档\"}"}}
+assert 'find_files' in agent.ALLOWED
+assert any(x['function']['name']=='find_files' and
+           'RAG' in x['function']['description']
+           for x in agent.TOOL_DEFINITIONS)
+assert 'find_files' in agent.build_messages(
+    agent.AgentStepRequest(message="短视频流程"))[0]['content']
 assert agent.extract_action({"tool_calls":[call]})=={
     "kind":"tool","tool":"list_folder","arguments":{"folder":"我的文档"}}
 assert agent.extract_action({"tool_calls":[{"function":{
@@ -77,7 +83,7 @@ cfg=SimpleNamespace(llm_provider="openai-compatible",
     ollama_chat_model="qwen")
 step=agent.call_agent_model(cfg,req)
 assert step["kind"]=="tool" and step["tool"]=="read_document"
-assert len(requests_log[-1][1]["json"]["tools"])==6
+assert len(requests_log[-1][1]["json"]["tools"])==7
 assert requests_log[-1][1]["json"]["tool_choice"]=="auto"
 cfg.llm_provider="ollama"
 assert agent.call_agent_model(cfg,req)["tool"]=="read_document"

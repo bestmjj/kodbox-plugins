@@ -38,6 +38,12 @@ kodReady.push(function () {
       '.aic-source-list{display:flex;flex-wrap:wrap;gap:6px;max-width:93%;margin-top:5px}',
       '.aic-source-list button,.aic-action{font-size:12px;color:#1754ac;background:#fff;border:1px solid #bfd2ec;border-radius:7px;padding:6px 10px;cursor:pointer}',
       '.aic-facts{background:#f5f9ff;border:1px solid #cbdff6;border-radius:8px;padding:9px 13px;font-size:12px;line-height:1.65;max-width:93%;margin-top:6px}',
+      '.aic-file-results{display:flex;flex-direction:column;gap:8px;max-width:95%;width:850px;padding-top:4px}',
+      '.aic-file-item{display:flex;flex-direction:column;gap:5px;text-align:left;background:#fff;border:1px solid #d8e3f4;border-radius:9px;padding:11px 13px;color:#334155;cursor:pointer;overflow-wrap:anywhere}',
+      '.aic-file-item:hover{background:#eff6ff;border-color:#8bb7ef}',
+      '.aic-file-title{font-weight:700;color:#1556a8;font-size:14px}',
+      '.aic-file-path{font-size:12px;color:#64748b}',
+      '.aic-file-snippet{font-size:12px;white-space:pre-wrap;line-height:1.5;color:#475569}',
       '.aic-facts strong{font-size:13px}',
       '.aic-attachment-note{color:#64748b;font-size:12px;margin-top:6px}',
       '.aic-footer{display:flex;flex-direction:column;gap:7px;padding:13px 20px 16px;border-top:1px solid #e2e8f0;background:#fff;flex:0 0 auto}',
@@ -307,6 +313,23 @@ kodReady.push(function () {
         });
     }
 
+    // Short file-title lookups should reuse the existing RAG index directly.
+    // This is a deterministic, safe retrieval shortcut; other requests still
+    // go through the model-selected KodBox Agent tools.
+    function shouldUseIndexedLookup(question) {
+        if (attached) return false;
+        var q=String(question||'').trim();
+        if (q.length<2 || q.length>90) return false;
+        if (/资产|台账|订阅费用|账单统计|费用汇总/.test(q)) return false;
+        if (/列出.*(?:文件夹|目录)|(?:文件夹|目录).*(?:有哪些|列出|子目录)|新建|创建|生成|帮我写|修改|润色|删除|移动|重命名|覆盖|帮我总结|分析|计算|统计/.test(q))
+            return false;
+        var fileHint=/文件|文档|文章|资料|笔记|流程|教程|手册|报告|方案|脚本|配置|\.md\b|\.txt\b|\.docx\b/i;
+        if (/(?:查找|找一下|帮我找|搜索|定位|在哪里|在哪儿|找找|有没有)/.test(q))
+            return fileHint.test(q) || q.length<=45;
+        return q.length<=24 && fileHint.test(q) &&
+            !/[?？]$/.test(q);
+    }
+
     function attachResult(row,data) {
         var sources=Array.isArray(data.sources)?data.sources:[];
         if(sources.length) {
@@ -316,6 +339,22 @@ kodReady.push(function () {
                 $('<button type="button"></button>').text('['+src.id+'] '+String(src.path).split('/').pop())
                     .appendTo(bar).on('click',function(){openSource(src);});
             });
+        }
+        if(Array.isArray(data.lookup_results)) {
+            var candidates=$('<div class="aic-file-results"></div>').appendTo(row);
+            data.lookup_results.slice(0,8).forEach(function(hit) {
+                if(!hit||!hit.path)return;
+                var btn=$('<button type="button" class="aic-file-item"></button>').appendTo(candidates);
+                $('<span class="aic-file-title"></span>').text('📄 '+String(hit.name||String(hit.path).split('/').pop())).appendTo(btn);
+                $('<span class="aic-file-path"></span>').text(String(hit.path)+' · '+String(hit.location||'')).appendTo(btn);
+                if(hit.snippet)
+                    $('<span class="aic-file-snippet"></span>').text(String(hit.snippet).slice(0,300)).appendTo(btn);
+                btn.attr('title','通过当前 KodBox 登录会话验证权限后打开原文件');
+                btn.on('click',function(){openSource(hit);});
+            });
+            $('<div class="aic-attachment-note"></div>').text(
+                '以上是 RAG 索引中的候选文件。点击后才会核验权限并打开原件；找不到不等于文件不存在。'
+            ).appendTo(row);
         }
         if(data.expense_summary && Array.isArray(data.expense_summary.totals)) {
             var facts=$('<div class="aic-facts"></div>').appendTo(row);
@@ -360,7 +399,7 @@ kodReady.push(function () {
         },260000);
         var toolLabels={
             list_folder:'列出文件夹',read_document:'读取文件',
-            search_knowledge:'搜索知识库',calculate_expenses:'核算费用',
+            find_files:'按索引定位文件',search_knowledge:'搜索知识库',calculate_expenses:'核算费用',
             prepare_edit:'准备修改稿',prepare_new_document:'起草新文档'
         };
         function finish(answer,extra) {
@@ -437,7 +476,7 @@ kodReady.push(function () {
                         return;
                     }
                     if(tool==='calculate_expenses' && result.summary)facts=result.summary;
-                    if(tool==='search_knowledge' && Array.isArray(result.results)){
+                    if((tool==='search_knowledge' || tool==='find_files') && Array.isArray(result.results)){
                         result.results.slice(0,8).forEach(function(ref,i){
                             if(ref&&ref.path)sources.push({
                                 id:i+1,path:ref.path,location:ref.location||''
@@ -461,6 +500,26 @@ kodReady.push(function () {
                     next(observations.length>=4);
                 });
             },fail);
+        }
+        if (shouldUseIndexedLookup(question)) {
+            // Filename/short-title searches do not need four expensive LLM
+            // tool decisions or blind walks through unrelated project folders.
+            audit.push('RAG 索引定位文件');
+            setStatus('正在使用现有 RAG 索引搜索文件名……');
+            apiRequest('agentTool',{tool:'find_files',arguments_json:JSON.stringify({query:question})},function(result){
+                if(id!==requestId)return;
+                var hits=Array.isArray(result.results)?result.results:[];
+                sources=hits.filter(function(x){return x && x.path;})
+                    .map(function(x,i){return {id:i+1,path:x.path,location:x.location||''};});
+                var answer=hits.length?
+                    '在已有 RAG 索引中找到 '+hits.length+' 个候选文件，已按文件名匹配程度排序。点击下面的文件即可打开。':
+                    '现有 RAG 索引没有找到匹配文件。您可以尝试缩短关键词，或检查该文件是否已纳入索引；这不代表 KodBox 中没有此文件。';
+                finish(answer,{mode:'file_lookup',sources:sources,lookup_results:hits});
+            },function(err){
+                if(id!==requestId)return;
+                fail('索引检索失败：'+err+'。您仍可以使用“高级搜索”进行独立检查。');
+            });
+            return;
         }
         next(false);
     }

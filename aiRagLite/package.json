@@ -2,12 +2,12 @@
   "id": "aiRagLite",
   "name": "AI 智能检索（自建）",
   "title": "AI 智能检索（自建）",
-  "version": "0.8.0",
+  "version": "0.8.1",
   "category": "tools",
   "source": {
     "className": "font-icon ri-search-eye-line bg-blue-6"
   },
-  "description": "KodBox AI Agent：模型主动调用列目录、读文件、搜索知识库、费用核算、生成文档修改/新建建议；写入必须用户审阅确认。当前文件权限隔离，rag_reader 只读。",
+  "description": "KodBox AI Agent：文件定位优先复用 RAG 索引，短文件名直查且可点击来源；明确查看目录时才调用 KodBox 列目录，避免模型盲目遍历。保留权限校验与确认保存。",
   "auther": {
     "copyright": "Community MVP",
     "homePage": "https://github.com/kalcaddle/kodbox"
