@@ -45,6 +45,10 @@ win.kodApi={requestSend:function(route,payload,callback){
         if(payload.message==='简化回答测试'){
             callback({code:true,data:{answer:'无 kind 的回答正常'}});return;
         }
+        if(payload.message==='说明明天成都的天气'){
+            callback({code:true,data:{kind:'final',
+                answer:'目前没有接入实时天气数据，因此不能核实明天的预报。'}});return;
+        }
         if(payload.message==='资阳联系人'){
             callback({code:true,data:{kind:'tool',tool:'find_files',
                 arguments:{query:'资阳联系人',limit:12,search_mode:'index',path:''}}});
@@ -246,6 +250,16 @@ assert.equal(calls.filter(x=>x.route.endsWith('/agentTool') &&
     x.payload.tool==='read_document').length,beforeDuplicate,
     'duplicate indexed filenames must not pick an arbitrary document');
 assert.match(one('#airaglite-chat-messages').text(),/多个同名文件/);
+
+// Ordinary questions still reach the model even when there is no KodBox file.
+const directBefore=calls.filter(x=>x.route.endsWith('/agentStep')).length;
+const directToolBefore=calls.filter(x=>x.route.endsWith('/agentTool')).length;
+input.val('说明明天成都的天气');send.trigger('click');
+assert.equal(calls.filter(x=>x.route.endsWith('/agentStep')).length,directBefore+1,
+    'general chat uses the model endpoint');
+assert.equal(calls.filter(x=>x.route.endsWith('/agentTool')).length,directToolBefore,
+    'general chat does not force a RAG tool call');
+assert.match(one('#airaglite-chat-status').text(),/AI 已回答；本轮未执行任何文件操作/);
 
 // Edit intent must not silently bypass AI as an ordinary file title search.
 const editStepsBefore=calls.filter(x=>x.route.endsWith('/agentStep')).length;
