@@ -25,6 +25,8 @@ spec=importlib.util.spec_from_file_location("rag.drafting",root/"service"/"rag"/
 writer=importlib.util.module_from_spec(spec)
 spec.loader.exec_module(writer)
 
+original_model_chat=writer.chat
+
 doc=Document()
 doc.add_heading("已有 Word 文档",level=1)
 doc.add_paragraph("第一段文字。")
@@ -73,6 +75,7 @@ except HTTPException as e:
     assert "secret" not in e.detail
 else:
     raise AssertionError("upstream rate limit should surface as a safe draft failure")
+writer.chat=original_model_chat
 # A transient upstream model HTTP 503 is retried at most once.
 retry_calls=[]
 class ModelReply:
