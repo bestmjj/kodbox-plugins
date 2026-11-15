@@ -316,7 +316,7 @@ kodReady.push(function () {
     function wantsExistingDocumentEdit(question) {
         var q=String(question||'').trim();
         return /(?:编辑|修改|改写|润色|重写|调整|精简|补充)/.test(q) &&
-            /(?:文档|文件|文章|笔记|流程|教程|手册|报告|方案|这篇|这个文件|\\.(?:md|txt|docx)\\b)/i.test(q);
+            /(?:文档|文件|文章|笔记|流程|教程|手册|报告|方案|这篇|这个文件|\.(?:md|txt|docx)\b)/i.test(q);
     }
     // Indexed file paths cannot be used as folder arguments. First resolve a
     // candidate under the active KodBox session, then map it back into the
@@ -394,7 +394,7 @@ kodReady.push(function () {
                 btn.attr('title','通过当前 KodBox 登录会话验证权限后打开原文件');
                 btn.on('click',function(){openSource(hit);});
                 if(typeof data.edit_instruction==='string' && data.edit_instruction &&
-                    /\\.(?:md|markdown|txt|docx)$/i.test(String(hit.name||hit.path.split('/').pop()))) {
+                    /\.(?:md|markdown|txt|docx)$/i.test(String(hit.name||hit.path.split('/').pop()))) {
                     $('<button type="button" class="aic-action"></button>')
                         .text('关联并用 AI 编辑').appendTo(candidates)
                         .on('click',function(){attachIndexedDocumentForEdit(hit,data.edit_instruction);});
