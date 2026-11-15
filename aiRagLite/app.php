@@ -378,7 +378,7 @@ class aiRagLitePlugin extends PluginBase {
         $raw=Input::get('arguments_json');
         if (!is_string($raw) || strlen($raw)>3500) show_json('工具参数长度无效',false);
         $args=json_decode($raw,true);
-        $allowed=array('list_folder','read_document','search_knowledge',
+        $allowed=array('list_folder','read_document','search_knowledge','find_files',
             'calculate_expenses','prepare_edit','prepare_new_document');
         if (!in_array($tool,$allowed,true) || !is_array($args) || count($args)>3)
             show_json('不支持的工具或参数',false);
@@ -408,6 +408,16 @@ class aiRagLitePlugin extends PluginBase {
                         mb_substr($original,0,5500,'UTF-8'):substr($original,0,5500)):$original;
                     $out=array('folder'=>$folder,'name'=>$name,'content'=>$body,
                         'truncated'=>$truncated,'total_chars'=>$length);
+                    break;
+                case 'find_files':
+                    $q=trim(strval($args['query'] ?? ''));
+                    if (strlen($q)<2 || strlen($q)>900)
+                        throw new RuntimeException('文件查询词过短或过长');
+                    // Reuse the SAME indexed search endpoint as the proven RAG UI.
+                    // WebDAV paths are suggestions only, never KodBox file permissions.
+                    $search=$this->backendData('search',array('q'=>$q,'limit'=>16));
+                    require_once(__DIR__.'/lib/IndexedFileLocator.php');
+                    $out=AiRagLiteIndexedFileLocator::rank($search,$q,8);
                     break;
                 case 'search_knowledge':
                     $q=trim(strval($args['query'] ?? ''));
