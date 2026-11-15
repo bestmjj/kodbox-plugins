@@ -73,4 +73,40 @@ except HTTPException as e:
     assert "secret" not in e.detail
 else:
     raise AssertionError("upstream rate limit should surface as a safe draft failure")
-print("OK: DOCX import, revision route, safe draft HTTP diagnostics and auth")
+# A transient upstream model HTTP 503 is retried at most once.
+retry_calls=[]
+class ModelReply:
+    def __init__(self,status):
+        self.status_code=status
+    def raise_for_status(self):
+        if self.status_code>=400:
+            exc=requests.HTTPError("simulated upstream error")
+            exc.response=self
+            raise exc
+    def json(self):
+        return {"choices":[{"message":{"content":"# 成功生成"}}]}
+def transient_post(url,**kwargs):
+    retry_calls.append(kwargs)
+    return ModelReply(503 if len(retry_calls)==1 else 200)
+writer.requests.post=transient_post
+writer.time.sleep=lambda seconds:None
+cfg_model=SimpleNamespace(llm_provider="openai-compatible",
+    openai_base_url="https://model.test/v1",openai_chat_model="test",
+    openai_api_key="test-key",llm_timeout=5)
+assert writer.chat(cfg_model,[{"role":"user","content":"测试"}])=="# 成功生成"
+assert len(retry_calls)==2,"temporary upstream HTTP status should retry once"
+assert retry_calls[0]["json"]==retry_calls[1]["json"],"retry must preserve request"
+
+# Auth failures must not be retried; a timeout may have consumed tokens.
+for failure in ("auth","timeout"):
+    retry_calls.clear()
+    def no_retry_post(url,**kwargs):
+        retry_calls.append(kwargs)
+        if failure=="timeout":raise requests.Timeout("simulated")
+        return ModelReply(401)
+    writer.requests.post=no_retry_post
+    try:writer.chat(cfg_model,[{"role":"user","content":"测试"}])
+    except requests.RequestException:pass
+    else:raise AssertionError("non-transient provider failure was suppressed")
+    assert len(retry_calls)==1,"unauthorized/timeout must not trigger duplicate calls"
+print("OK: DOCX import, revision route, safe draft HTTP diagnostics, bounded retry and auth")
