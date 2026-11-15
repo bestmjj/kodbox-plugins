@@ -390,7 +390,7 @@ kodReady.push(function () {
         pending=true;send.prop('disabled',true).text('处理中…');
         setStatus('AI 正在选择需要执行的文件工具……');
         var id=++requestId;
-        var observations=[],audit=[],facts=null,sources=[];
+        var observations=[],audit=[],facts=null,sources=[],indexedCandidates=[];
         var timer=window.setTimeout(function(){
             if(id!==requestId)return;
             requestId++;pending=false;send.prop('disabled',false).text('发送');
@@ -488,6 +488,32 @@ kodReady.push(function () {
                     args={query:q.trim()};
                     if(!args.query) {fail('模型没有提供有效的检索关键词');return;}
                 }
+                // File discovery returns WebDAV index paths, never home-relative
+                // KodBox folders. Pin a subsequent read to the *exact* indexed
+                // candidate; PHP still resolves the path and verifies session rights.
+                if((tool==='read_document' || tool==='calculate_expenses') &&
+                    typeof args.name==='string') {
+                    var candidates=indexedCandidates.filter(function(hit) {
+                        if(!hit || typeof hit.path!=='string')return false;
+                        var hitName=String(hit.name||hit.path.split('/').pop());
+                        return hitName===args.name;
+                    });
+                    var uniquePaths=Array.from(new Set(candidates.map(function(hit){return hit.path;})));
+                    var preferredFolder=String(args.folder||'');
+                    if(uniquePaths.length>1 && preferredFolder) {
+                        var exact=uniquePaths.filter(function(path) {
+                            return path===preferredFolder+'/'+args.name;
+                        });
+                        if(exact.length===1)uniquePaths=exact;
+                    }
+                    if(uniquePaths.length===1) {
+                        args={folder:preferredFolder,name:args.name,indexed_path:uniquePaths[0]};
+                    }else if(uniquePaths.length>1) {
+                        finish('索引找到多个同名文件，无法确认应读取哪一个。请从下方候选文件中选择并打开。',
+                            {mode:'ambiguous_file',sources:sources,lookup_results:candidates});
+                        return;
+                    }
+                }
                 var repeated=observations.some(function(obs) {
                     return obs.tool===tool &&
                         JSON.stringify(obs.arguments)===JSON.stringify(args);
@@ -519,6 +545,7 @@ kodReady.push(function () {
                     }
                     if(tool==='calculate_expenses' && result.summary)facts=result.summary;
                     if((tool==='search_knowledge' || tool==='find_files') && Array.isArray(result.results)){
+                        if(tool==='find_files')indexedCandidates=result.results.slice(0,8);
                         result.results.slice(0,8).forEach(function(ref,i){
                             if(ref&&ref.path)sources.push({
                                 id:i+1,path:ref.path,location:ref.location||''
