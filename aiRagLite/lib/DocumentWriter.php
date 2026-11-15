@@ -143,18 +143,46 @@ class AiRagLiteDocumentWriter {
     public static function fromActiveFilePath($raw) {
         if (!is_string($raw) || strlen($raw)>3500 || strpos($raw,"\0")!==false)
             throw new RuntimeException('当前文件路径无效');
-        $home=rtrim(self::home(),'/');
-        $path=KodIO::clear($raw);
-        if (strpos($path,$home.'/')!==0) throw new RuntimeException('当前文件不在个人空间');
-        $relative=substr($path,strlen($home)+1);
-        $parts=self::segments($relative);
-        if (count($parts)<1) throw new RuntimeException('未指定文件');
-        $name=array_pop($parts);
-        $folder=implode('/',$parts);
-        $verified=self::findDocument($folder,$name,'view');
-        if (KodIO::clear($verified['path'])!==$path)
-            throw new RuntimeException('文件实际路径不匹配');
-        return array('folder'=>$folder,'name'=>$name);
+        $target=KodIO::clear($raw);
+        // KodBox virtual paths are not hierarchical prefixes:
+        // a child folder may be {source:2002}, whereas the user's home is
+        // {source:1001}. Walk the visible personal tree rather than checking
+        // an invalid "{source:1001}/" prefix.
+        $queue=array(array('path'=>self::home(),'folder'=>'','depth'=>0));
+        $visited=array();$checked=0;
+        while ($queue && $checked<160) {
+            $item=array_shift($queue);
+            if (isset($visited[$item['path']])) continue;
+            $visited[$item['path']]=true;$checked++;
+            if (!Action('explorer.auth')->fileCan($item['path'],'show')) continue;
+            $listing=self::entriesIn($item['path']);
+            foreach (($listing['fileList'] ?? array()) as $entry) {
+                if (!is_array($entry) || !isset($entry['name'],$entry['path'])) continue;
+                if (KodIO::clear($entry['path'])!==$target) continue;
+                if (!self::supportedExtension($entry['name']) ||
+                    !Action('explorer.auth')->fileCan($entry['path'],'view'))
+                    throw new RuntimeException('当前文件格式不受支持或无访问权限');
+                // Re-enumerate its containing folder under current login.
+                $found=self::findDocument($item['folder'],$entry['name'],'view');
+                if (KodIO::clear($found['path'])!==$target)
+                    throw new RuntimeException('文件路径不匹配');
+                return array('folder'=>$item['folder'],'name'=>$entry['name']);
+            }
+            if ($item['depth']>=10) continue;
+            foreach (($listing['folderList'] ?? array()) as $entry) {
+                if (!is_array($entry) || !isset($entry['name'],$entry['path']) ||
+                    (isset($entry['isDelete']) && $entry['isDelete']=='1')) continue;
+                $name=strval($entry['name']);
+                if ($name==='' || $name==='.' || $name==='..' || strlen($name)>255 ||
+                    strpos($name,'/')!==false || strpos($name,"\\")!==false) continue;
+                if (!Action('explorer.auth')->fileCan($entry['path'],'show')) continue;
+                $queue[]=array('path'=>$entry['path'],
+                    'folder'=>($item['folder']!==''?$item['folder'].'/':'').$name,
+                    'depth'=>$item['depth']+1);
+                if (count($queue)>180) break;
+            }
+        }
+        throw new RuntimeException('个人空间内未找到此文件，或超过160个目录的遍历限制');
     }
 
     private static function supportedExtension($name) {
