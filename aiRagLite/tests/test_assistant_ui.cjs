@@ -51,6 +51,22 @@ win.kodApi={requestSend:function(route,payload,callback){
             return;
         }
         const steps=JSON.parse(payload.observations_json);
+        if(payload.message==='总结未关联今年费用') {
+            const reply=steps.length===0?
+                {kind:'tool',tool:'find_files',arguments:{query:'2026年费用'}}:
+                steps.length===1?
+                {kind:'tool',tool:'read_document',
+                    arguments:{folder:'与我协作',name:'2026年费用.md'}}:
+                {kind:'final',answer:'已依据已验证文件内容总结费用'};
+            callback({code:true,data:reply});return;
+        }
+        if(payload.message==='总结同名费用') {
+            const reply=steps.length===0?
+                {kind:'tool',tool:'find_files',arguments:{query:'费用'}}:
+                {kind:'tool',tool:'read_document',
+                    arguments:{folder:'与我协作',name:'2026年费用.md'}};
+            callback({code:true,data:reply});return;
+        }
         if(payload.message.includes('资产')){
             callback({code:true,data:{kind:'final',mode:'asset_live',answer:'资产 3 项'}});
         }else if(steps.length===0&&!payload.force_final.includes('1')){
@@ -90,13 +106,28 @@ win.kodApi={requestSend:function(route,payload,callback){
                     {currency:'USD',amount:'10.46',rows:1}],
                 skipped_rows:1,method:'仅明确币种的记录'}}});
         }else if(payload.tool==='find_files'){
+            const files=args.query==='2026年费用'?[
+                {name:'2026年费用.md',
+                 path:'与我协作/用户[admin]/我的文档/财务/2026年费用.md',
+                 location:'第 1 行',snippet:'# 2026年费用'}
+            ]:args.query==='费用'?[
+                {name:'2026年费用.md',
+                 path:'与我协作/用户[admin]/我的文档/财务/2026年费用.md'},
+                {name:'2026年费用.md',
+                 path:'与我协作/用户[admin]/我的文档/旧版/2026年费用.md'}
+            ]:[{
+                name:'萌宠短视频流程.md',
+                path:'与我协作/用户[admin]/我的文档/学习/短视频/萌宠短视频流程.md',
+                location:'第 1 行',snippet:'# 萌宠短视频制作流程'
+            }];
             callback({code:true,data:{
-                query:args.query,indexed_only:true,results:[{
-                    name:'萌宠短视频流程.md',
-                    path:'与我协作/用户[admin]/我的文档/学习/短视频/萌宠短视频流程.md',
-                    location:'第 1 行',snippet:'# 萌宠短视频制作流程'
-                }],count:1
+                query:args.query,indexed_only:true,results:files,count:files.length
             }});
+        }else if(payload.tool==='read_document'){
+            if(!args.indexed_path)
+                throw Error('Missing indexed_path for resolved RAG file read');
+            callback({code:true,data:{name:args.name,content:'# 2026年费用',
+                source_verified:true,truncated:false,total_chars:10}});
         }else if(payload.tool==='search_knowledge'){
             callback({code:true,data:{results:[
                 {name:'a.md',path:'与我协作/用户[admin]/我的文档/a.md',
@@ -179,6 +210,29 @@ assert.equal(calls.filter(x=>x.route.endsWith('/agentTool')).length,beforeBadToo
 assert.match(one('#airaglite-chat-status').text(),/不支持的工具或参数/);
 assert.match(one('#airaglite-chat-messages').text(),/操作未完成/);
 failedTool=false;
+
+// RAG WebDAV virtual paths must never become relative home folders.
+const readBefore=calls.filter(x=>x.route.endsWith('/agentTool') &&
+    x.payload.tool==='read_document').length;
+input.val('总结未关联今年费用');send.trigger('click');
+const readCalls=calls.filter(x=>x.route.endsWith('/agentTool') &&
+    x.payload.tool==='read_document');
+assert.equal(readCalls.length,readBefore+1);
+const readArgs=JSON.parse(readCalls.at(-1).payload.arguments_json);
+assert.equal(readArgs.folder,'与我协作','model provided an invalid home-relative folder');
+assert.equal(readArgs.indexed_path,
+    '与我协作/用户[admin]/我的文档/财务/2026年费用.md',
+    'frontend pins read to exact RAG candidate path for PHP permission check');
+assert.match(one('#airaglite-chat-messages').text(),/已依据已验证文件内容总结费用/);
+assert.equal(send.prop('disabled'),false);
+
+const beforeDuplicate=calls.filter(x=>x.route.endsWith('/agentTool') &&
+    x.payload.tool==='read_document').length;
+input.val('总结同名费用');send.trigger('click');
+assert.equal(calls.filter(x=>x.route.endsWith('/agentTool') &&
+    x.payload.tool==='read_document').length,beforeDuplicate,
+    'duplicate indexed filenames must not pick an arbitrary document');
+assert.match(one('#airaglite-chat-messages').text(),/多个同名文件/);
 
 // Short file names should bypass blind directory wandering and use RAG
 // filename search exactly once, without any model tool-selection latency.
