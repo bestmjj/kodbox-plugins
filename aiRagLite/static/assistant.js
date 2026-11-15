@@ -430,6 +430,25 @@ kodReady.push(function () {
             addTurn('assistant','操作未完成：'+String(err));
             setStatus('Agent 调用失败：'+String(err),true);
         }
+        // Be tolerant of a single older API envelope while keeping tool execution strict.
+        // A missing tool call is a valid final answer, not proof of unsupported function calling.
+        function normalizeAgentStep(value) {
+            var result=value;
+            for(var n=0;n<3;n++) {
+                if(typeof result==='string') {
+                    try {result=JSON.parse(result);} catch(e) {break;}
+                    continue;
+                }
+                if(result && typeof result==='object' && !Array.isArray(result) &&
+                    !result.kind && result.data && typeof result.data==='object' &&
+                    !Array.isArray(result.data)) {
+                    result=result.data;
+                    continue;
+                }
+                break;
+            }
+            return result;
+        }
         function next(forceFinal) {
             if(id!==requestId)return;
             apiRequest('agentStep',{
@@ -441,19 +460,26 @@ kodReady.push(function () {
                 force_final:forceFinal?'1':'0'
             },function(data){
                 if(id!==requestId)return;
-                if(data.kind==='final') {
-                    finish(String(data.answer||'没有得到有效回答。'),{
-                        mode:data.mode||'agent',sources:sources,
+                var step=normalizeAgentStep(data);
+                if(step && typeof step==='object' &&
+                    (step.kind==='final' || (!step.kind && typeof step.answer==='string'))) {
+                    finish(String(step.answer||'没有得到有效回答。'),{
+                        mode:step.mode||'agent',sources:sources,
                         expense_summary:facts
                     });
                     return;
                 }
-                if(data.kind!=='tool' || !toolLabels[data.tool] ||
-                    !data.arguments || typeof data.arguments!=='object') {
-                    fail('模型没有返回有效工具调用，请检查当前模型是否支持 function calling');
+                if(!step || step.kind!=='tool' || !toolLabels[step.tool] ||
+                    !step.arguments || typeof step.arguments!=='object' ||
+                    Array.isArray(step.arguments)) {
+                    var keys=step && typeof step==='object' && !Array.isArray(step)?
+                        Object.keys(step).slice(0,8).join(', '):typeof step;
+                    var kind=step && typeof step==='object'?String(step.kind||'缺失'):'缺失';
+                    fail('Agent 返回格式不匹配（kind='+kind+'；字段：'+keys+
+                        '）。请检查 KodBox 插件与 RAG API 的响应结构。');
                     return;
                 }
-                var tool=data.tool,args=data.arguments;
+                var tool=step.tool,args=step.arguments;
                 var display=toolLabels[tool];
                 if(args.name)display+='：'+String(args.name).slice(0,60);
                 else if(args.folder)display+='：'+String(args.folder).slice(0,60);
