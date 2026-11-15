@@ -378,10 +378,33 @@ class aiRagLitePlugin extends PluginBase {
         $raw=Input::get('arguments_json');
         if (!is_string($raw) || strlen($raw)>3500) show_json('工具参数长度无效',false);
         $args=json_decode($raw,true);
-        $allowed=array('list_folder','read_document','search_knowledge','find_files',
-            'calculate_expenses','prepare_edit','prepare_new_document');
-        if (!in_array($tool,$allowed,true) || !is_array($args) || count($args)>3)
-            show_json('不支持的工具或参数',false);
+        // Some KodBox request serializers return a JSON-encoded JSON string.
+        // Unwrap at most once; never evaluate or execute model-provided content.
+        if (is_string($args)) $args=json_decode($args,true);
+        $toolFields=array(
+            'list_folder'=>array('folder'),
+            'read_document'=>array('folder','name'),
+            'find_files'=>array('query'),
+            'search_knowledge'=>array('query'),
+            'calculate_expenses'=>array('folder','name'),
+            'prepare_edit'=>array('folder','name','instructions'),
+            'prepare_new_document'=>array('title','instructions'),
+        );
+        if (!isset($toolFields[$tool])) show_json('不支持的 Agent 工具',false);
+        if (!is_array($args) || count($args)>12)
+            show_json('Agent 工具参数不是有效 JSON 对象',false);
+        // Read-only searches may include model-generated optional parameters
+        // such as limit/path. Ignore them; only the query may reach the index.
+        if ($tool==='find_files' || $tool==='search_knowledge') {
+            $query=$args['query'] ?? ($args['q'] ?? null);
+            if (!is_string($query)) show_json('检索工具缺少有效 query 字符串',false);
+            $args=array('query'=>$query);
+        } else {
+            foreach ($args as $key=>$value) {
+                if (!is_string($key) || !in_array($key,$toolFields[$tool],true))
+                    show_json('工具 '.$tool.' 包含不支持的参数字段',false);
+            }
+        }
         foreach ($args as $key=>$value) {
             if (!is_string($key) || !is_string($value) || strlen($value)>2048)
                 show_json('工具参数必须为限定长度的字符串',false);
