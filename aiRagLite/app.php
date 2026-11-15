@@ -361,9 +361,14 @@ class aiRagLitePlugin extends PluginBase {
             }
         }
         $force=strval(Input::get('force_final'))==='1';
+        $today=Input::get('client_today');
+        // Date-only browser context, never a user-controlled system prompt.
+        // The RAG API also rejects clocks that differ substantially from UTC.
+        $clientToday=is_string($today) && preg_match('/^[0-9]{4}-[0-9]{2}-[0-9]{2}$/D',$today) ?
+            $today:null;
         $this->requestBackend('agent-step',array(
             'message'=>$message,'history'=>$cleanHistory,'observations'=>$cleanObs,
-            'current_file'=>$current,'force_final'=>$force
+            'current_file'=>$current,'force_final'=>$force,'client_today'=>$clientToday
         ));
     }
 
