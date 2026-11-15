@@ -535,7 +535,7 @@ var widthTools = $('<div class="alw-width-tools" role="group" aria-label="左右
     toAssistant.on('click', function () {
         finishDrag();overlay.hide();closePicker();
         if (loadedDoc && typeof window.aiRagLiteSetActiveDocument==='function')
-            window.aiRagLiteSetActiveDocument(loadedDoc.folder,loadedDoc.name);
+            window.aiRagLiteSetActiveDocument(loadedDoc.folder,loadedDoc.name,String(req.val()||'').trim());
         if (typeof window.aiRagLiteOpenAssistant==='function')
             window.aiRagLiteOpenAssistant();
     });
