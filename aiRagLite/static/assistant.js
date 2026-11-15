@@ -224,51 +224,127 @@ kodReady.push(function () {
         var question=String(input.val()||'').trim();
         if(question.length<2){setStatus('请至少输入两个字符',true);return;}
         if(question.length>1800){setStatus('输入内容过长',true);return;}
-        if(messages.find('.aic-welcome').length) messages.empty();
-        var history=turns.slice(-8).map(function(x){return {role:x.role,content:x.content.slice(0,2200)};});
+        if(messages.find('.aic-welcome').length)messages.empty();
+        var history=turns.slice(-6).map(function(x){
+            return {role:x.role,content:x.content.slice(0,1800)};
+        });
         addTurn('user',question);
         input.val('');
         pending=true;send.prop('disabled',true).text('处理中…');
-        setStatus('正在读取相关资料并生成回答……');
+        setStatus('AI 正在选择需要执行的文件工具……');
         var id=++requestId;
-        var watchdog=window.setTimeout(function(){
+        var observations=[],audit=[],facts=null,sources=[];
+        var timer=window.setTimeout(function(){
             if(id!==requestId)return;
-            ++requestId;pending=false;send.prop('disabled',false).text('发送');
-            addTurn('assistant','请求超时。请检查 KodBox 和 RAG API 日志，然后重试。');
-            setStatus('没有收到后端响应',true);
-        },190000);
-        apiRequest('assistantChat',{
-            message:question,
-            history_json:JSON.stringify(history),
-            file_folder:attached?attached.folder:'',
-            file_name:attached?attached.name:''
-        },function(data){
+            requestId++;pending=false;send.prop('disabled',false).text('发送');
+            addTurn('assistant','操作超时。请检查插件和 RAG API 日志；没有进行任何文件写入。');
+            setStatus('Agent 运行超时',true);
+        },260000);
+        var toolLabels={
+            list_folder:'列出文件夹',read_document:'读取文件',
+            search_knowledge:'搜索知识库',calculate_expenses:'核算费用',
+            prepare_edit:'准备修改稿',prepare_new_document:'起草新文档'
+        };
+        function finish(answer,extra) {
             if(id!==requestId)return;
-            window.clearTimeout(watchdog);
+            window.clearTimeout(timer);
             pending=false;send.prop('disabled',false).text('发送');
-            var answer=typeof data.answer==='string'?data.answer:'没有收到有效回答。';
-            var row=addTurn('assistant',answer,data.sources||[]);
-            attachResult(row,data);
-            // AssetLedger replies must NEVER be replayed into external LLM
-            // history on a later, unrelated document question.
-            if (data.mode==='asset_live') {
-                turns=[];
-            } else {
+            var row=addTurn('assistant',answer,sources);
+            if(extra)attachResult(row,extra);
+            if(audit.length){
+                var summary=$('<div class="aic-attachment-note"></div>')
+                    .text('本轮执行：'+audit.join(' → ')).appendTo(row);
+            }
+            if(extra && extra.mode==='asset_live')turns=[];
+            else {
                 turns.push({role:'user',content:question});
-                // The full proposed document is never added to chat history.
-                turns.push({role:'assistant',content:answer.slice(0,2200)});
+                turns.push({role:'assistant',content:String(answer).slice(0,1800)});
                 if(turns.length>16)turns=turns.slice(-16);
             }
-            setStatus(data.mode==='asset_live'?'AssetLedger 本地实时查询 · 未提交给文档 AI':
-                attached?'当前文件只读分析 · 原文件未改变':'RAG 知识库查询 · 原文件未改变');
+            setStatus(extra&&extra.mode==='asset_live'?
+                '资产查询只在本地执行，没有发送到语言模型':
+                '已完成本轮工具调用；原文件没有改变');
             scrollBottom();
-        },function(err){
+        }
+        function fail(err) {
             if(id!==requestId)return;
-            window.clearTimeout(watchdog);
+            window.clearTimeout(timer);
             pending=false;send.prop('disabled',false).text('发送');
-            addTurn('assistant','处理失败：'+err);
-            setStatus(err,true);
-        });
+            addTurn('assistant','操作未完成：'+String(err));
+            setStatus('Agent 调用失败：'+String(err),true);
+        }
+        function next(forceFinal) {
+            if(id!==requestId)return;
+            apiRequest('agentStep',{
+                message:question,
+                history_json:JSON.stringify(history),
+                observations_json:JSON.stringify(observations),
+                file_folder:attached?attached.folder:'',
+                file_name:attached?attached.name:'',
+                force_final:forceFinal?'1':'0'
+            },function(data){
+                if(id!==requestId)return;
+                if(data.kind==='final') {
+                    finish(String(data.answer||'没有得到有效回答。'),{
+                        mode:data.mode||'agent',sources:sources,
+                        expense_summary:facts
+                    });
+                    return;
+                }
+                if(data.kind!=='tool' || !toolLabels[data.tool] ||
+                    !data.arguments || typeof data.arguments!=='object') {
+                    fail('模型没有返回有效工具调用，请检查当前模型是否支持 function calling');
+                    return;
+                }
+                var tool=data.tool,args=data.arguments;
+                var display=toolLabels[tool];
+                if(args.name)display+='：'+String(args.name).slice(0,60);
+                else if(args.folder)display+='：'+String(args.folder).slice(0,60);
+                else if(args.query)display+='：'+String(args.query).slice(0,60);
+                audit.push(display);
+                setStatus('正在执行：'+display+'（'+audit.length+'/4）');
+                var trace=$('<div class="aic-attachment-note"></div>')
+                    .text('⚙ '+display+' · 执行中').appendTo(messages);
+                scrollBottom();
+                apiRequest('agentTool',{
+                    tool:tool,
+                    arguments_json:JSON.stringify(args)
+                },function(result){
+                    if(id!==requestId)return;
+                    trace.text('✓ '+display);
+                    if(result.proposal && typeof result.proposal.content==='string') {
+                        finish(String(result.message||'已准备待审阅的修改建议；原文件未改变。'),{
+                            proposal:result.proposal,mode:'proposal',sources:sources
+                        });
+                        return;
+                    }
+                    if(tool==='calculate_expenses' && result.summary)facts=result.summary;
+                    if(tool==='search_knowledge' && Array.isArray(result.results)){
+                        result.results.slice(0,8).forEach(function(ref,i){
+                            if(ref&&ref.path)sources.push({
+                                id:i+1,path:ref.path,location:ref.location||''
+                            });
+                        });
+                    }
+                    observations.push({
+                        tool:tool,arguments:args,
+                        result:JSON.stringify(result).slice(0,6200)
+                    });
+                    next(observations.length>=4);
+                },function(err){
+                    if(id!==requestId)return;
+                    trace.text('× '+display+' · '+err);
+                    // A failed tool is still an observation. The model can
+                    // choose another safe tool, instead of silent failure.
+                    observations.push({
+                        tool:tool,arguments:args,
+                        result:'工具执行失败：'+String(err).slice(0,400)
+                    });
+                    next(observations.length>=4);
+                });
+            },fail);
+        }
+        next(false);
     }
     function chooseFolder(folder) {
         var id=++browseId;
@@ -340,6 +416,7 @@ kodReady.push(function () {
     });
     writingTool.on('click',function(){
         if(!$('#airaglite-writer-open').length){setStatus('文档编辑器尚未就绪',true);return;}
+        layer.hide();
         $('#airaglite-writer-open').trigger('click');
     });
     cancel.on('click',closePicker);
