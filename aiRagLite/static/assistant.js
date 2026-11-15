@@ -56,6 +56,21 @@ kodReady.push(function () {
       '.aic-picker-items button{display:flex;gap:12px;width:100%;border:0;border-bottom:1px solid #eff2f6;background:white;text-align:left;color:#234d85;padding:12px;cursor:pointer;font-size:13px}',
       '.aic-picker-items button:hover{background:#eff6ff}',
       '.aic-picker-foot{padding:12px 18px;border-top:1px solid #e2e8f0;display:flex;gap:10px;justify-content:space-between}',
+      '#airaglite-agent-review{position:fixed;inset:0;z-index:9985;display:none;align-items:center;justify-content:center;background:#0f172a99;padding:12px;box-sizing:border-box}',
+      '#airaglite-agent-review *{box-sizing:border-box}',
+      '.aic-review-panel{width:min(1070px,98vw);height:min(760px,92vh);min-height:0;display:flex;flex-direction:column;background:white;border-radius:12px;overflow:hidden;color:#243145;box-shadow:0 18px 45px #0004}',
+      '.aic-review-head{padding:12px 18px;border-bottom:1px solid #e2e8f0;display:flex;align-items:center;gap:10px}',
+      '.aic-review-head strong{font-size:17px;flex:1}',
+      '.aic-review-head button,.aic-review-foot button{border:1px solid #cbd5e1;background:white;padding:9px 12px;border-radius:8px;cursor:pointer;color:#234c83}',
+      '.aic-review-columns{display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1fr);flex:1;min-height:0;overflow:hidden}',
+      '.aic-review-pane{display:flex;flex-direction:column;min-width:0;min-height:0;overflow:hidden;border-right:1px solid #e2e8f0}',
+      '.aic-review-pane strong{padding:11px;background:#f8fafc;border-bottom:1px solid #e2e8f0}',
+      '#airaglite-review-before{flex:1;min-height:0;overflow:auto;white-space:pre-wrap;overflow-wrap:anywhere;padding:14px;margin:0;font:13px/1.75 ui-monospace,Consolas,monospace}',
+      '#airaglite-review-after{flex:1;min-height:0;width:100%;border:0;outline:0;resize:none;padding:14px;font:13px/1.75 ui-monospace,Consolas,monospace;color:#1e293b}',
+      '#airaglite-review-status{font-size:12px;color:#475569;line-height:1.6;flex:1;min-width:0;overflow-wrap:anywhere}',
+      '.aic-review-foot{padding:12px 15px;border-top:1px solid #e2e8f0;display:flex;align-items:center;gap:8px;flex-wrap:wrap}',
+      '.aic-review-foot button.aic-primary{background:#2368d6;color:white;border-color:#2368d6;font-weight:650}',
+      '@media(max-width:650px){.aic-review-columns{grid-template-columns:1fr;overflow:auto}.aic-review-pane{min-height:220px}.aic-review-foot{align-items:stretch;flex-direction:column}}',
       '@media(max-width:650px){#airaglite-assistant-layer{padding:2px}#airaglite-assistant-panel{width:100vw;height:99vh;max-height:99vh;border-radius:7px}.aic-header,.aic-toolbar{padding:10px 12px}#airaglite-chat-messages{padding:12px}.aic-footer{padding:10px}.aic-bubble{max-width:100%}.aic-tools{margin-left:0}}'
     ].join('\n');
     $('<style id="airaglite-chat-css"></style>').text(css).appendTo('head');
@@ -93,6 +108,26 @@ kodReady.push(function () {
     var pickFoot=$('<div class="aic-picker-foot"></div>').appendTo(pickPanel);
     var back=$('<button type="button">← 返回上级</button>').appendTo(pickFoot);
     $('<span class="aic-muted">目前支持个人空间里的 MD、TXT、Word。只读分析。</span>').appendTo(pickFoot);
+
+    // A proposal stays in this separate, explicit approval dialog.
+    // The model never writes files; the user must click a save action.
+    var reviewLayer=$('<div id="airaglite-agent-review"></div>').appendTo('body');
+    var reviewPanel=$('<div class="aic-review-panel" role="dialog" aria-modal="true" aria-label="审阅 AI 文件修改"></div>').appendTo(reviewLayer);
+    var reviewHead=$('<div class="aic-review-head"></div>').appendTo(reviewPanel);
+    var reviewHeading=$('<strong>审阅 AI 修改建议</strong>').appendTo(reviewHead);
+    var reviewClose=$('<button type="button" id="airaglite-review-close">取消，不保存</button>').appendTo(reviewHead);
+    var reviewColumns=$('<div class="aic-review-columns"></div>').appendTo(reviewPanel);
+    var reviewBeforePane=$('<section class="aic-review-pane"></section>').appendTo(reviewColumns);
+    $('<strong>原文件（只读）</strong>').appendTo(reviewBeforePane);
+    var reviewBefore=$('<pre id="airaglite-review-before"></pre>').appendTo(reviewBeforePane);
+    var reviewAfterPane=$('<section class="aic-review-pane"></section>').appendTo(reviewColumns);
+    $('<strong>AI 建议稿（可编辑）</strong>').appendTo(reviewAfterPane);
+    var reviewAfter=$('<textarea id="airaglite-review-after" maxlength="50000" aria-label="修改后的草稿"></textarea>').appendTo(reviewAfterPane);
+    var reviewFoot=$('<div class="aic-review-foot"></div>').appendTo(reviewPanel);
+    var reviewStatus=$('<div id="airaglite-review-status" role="status"></div>').appendTo(reviewFoot);
+    var reviewSaveNew=$('<button type="button" id="airaglite-review-save-new" class="aic-primary">另存为新版本</button>').appendTo(reviewFoot);
+    var reviewOverwrite=$('<button type="button" id="airaglite-review-overwrite">先备份，再更新原文</button>').appendTo(reviewFoot);
+    var reviewProposal=null,reviewSourceHash='',reviewSaving=false;
 
     var attached=null;    // folder, name; no file contents stored persistently
     var turns=[];          // transient in-page history, never persisted
@@ -179,6 +214,99 @@ kodReady.push(function () {
             else window.location.assign(target.href);
         },function(err){if(tab&&!tab.closed)tab.close();setStatus(err,true);});
     }
+    function reviewMessage(message,error){
+        reviewStatus.text(String(message||'')).css('color',error?'#b91c1c':'#475569');
+    }
+    function closeReview(){
+        if(reviewSaving)return;
+        reviewProposal=null;reviewSourceHash='';
+        reviewLayer.hide();
+    }
+    function showProposalReview(p){
+        if(pending){setStatus('等当前任务完成后再审阅',true);return;}
+        if(!p || typeof p.content!=='string'||!p.content.trim()||p.content.length>50000){
+            setStatus('AI 返回的候选稿不可用',true);return;
+        }
+        reviewProposal=p;
+        reviewSourceHash='';
+        reviewBefore.text('');
+        reviewAfter.val(p.content);
+        reviewOverwrite.hide();
+        reviewLayer.css('display','flex');
+        if(p.kind==='revision') {
+            reviewHeading.text('审阅修改：'+String(p.name||'文章'));
+            reviewMessage('正在重新读取原文件并校验版本……');
+            reviewSaveNew.prop('disabled',true);
+            apiRequest('writerRead',{folder:p.folder,name:p.name},function(doc){
+                if(reviewProposal!==p)return;
+                if(!doc || typeof doc.content!=='string'||!(/^[a-f0-9]{64}$/).test(String(doc.hash||''))){
+                    reviewMessage('原文件读取无效，已禁止保存。',true);return;
+                }
+                if(typeof p.hash==='string' && p.hash && p.hash!==doc.hash){
+                    reviewBefore.text(doc.content);
+                    reviewMessage('原文件在生成建议后发生变化。请关闭并重新让 AI 修改，避免覆盖新内容。',true);
+                    return;
+                }
+                reviewSourceHash=doc.hash;
+                reviewBefore.text(doc.content);
+                reviewSaveNew.prop('disabled',false);
+                reviewOverwrite.toggle(/\.(md|markdown|txt)$/i.test(p.name));
+                reviewMessage('这里只展示建议稿。另存不会覆盖原文；更新原文必须先备份且再次确认。');
+            },function(err){
+                if(reviewProposal!==p)return;
+                reviewMessage('读取原文件失败：'+err,true);
+            });
+        }else{
+            reviewHeading.text('审阅新文档：'+String(p.title||'AI 草稿'));
+            reviewBefore.text('新文档尚不存在，无需修改任何原文件。');
+            reviewSaveNew.prop('disabled',false);
+            reviewMessage('可以先在右侧编辑内容，再保存为新文件。');
+        }
+    }
+    function saveProposal(overwriteOriginal){
+        if(!reviewProposal || reviewSaving)return;
+        var content=String(reviewAfter.val()||'');
+        if(!content.trim()||content.length>50000){
+            reviewMessage('文档内容为空或超过长度限制。',true);return;
+        }
+        var p=reviewProposal;
+        if(overwriteOriginal){
+            if(p.kind!=='revision'||!reviewSourceHash||!/\.(md|markdown|txt)$/i.test(p.name)){
+                reviewMessage('此文件不允许直接覆盖，请另存新版本。',true);return;
+            }
+            if(!window.confirm('将先备份再更新原文件：'+p.name+'。这一步会真正修改 KodBox 内容，确认继续？'))
+                return;
+        }
+        reviewSaving=true;
+        reviewSaveNew.prop('disabled',true);reviewOverwrite.prop('disabled',true);
+        reviewMessage(overwriteOriginal?'正在备份并更新原文件……':'正在保存新的文档……');
+        var route=overwriteOriginal?'writerOverwrite':'saveDraft';
+        var payload;
+        if(overwriteOriginal){
+            payload={folder:p.folder,name:p.name,hash:reviewSourceHash,
+                content:content,confirm:'backup-and-overwrite'};
+        }else{
+            var isWord=p.kind==='revision'&&String(p.name).toLowerCase().endsWith('.docx');
+            var title=p.kind==='revision'?String(p.name).replace(/\.(md|markdown|txt|docx)$/i,'')+'-AI修改版':
+                String(p.title||'AI新文档');
+            payload={folder:p.kind==='revision'?p.folder:'AI草稿',
+                title:title,content:content,format:isWord?'docx':'md'};
+        }
+        apiRequest(route,payload,function(data){
+            reviewSaving=false;
+            reviewSaveNew.prop('disabled',false);reviewOverwrite.prop('disabled',false);
+            var name=String(data.name||p.name||'新文档');
+            var backup=overwriteOriginal&&data.backup?'（备份：'+data.backup+'）':'';
+            closeReview();
+            addTurn('assistant','✅ 已在 KodBox '+(overwriteOriginal?'更新原文件':'另存为新文档')+
+                '：'+name+backup);
+            setStatus('用户已确认并完成保存。');
+        },function(err){
+            reviewSaving=false;reviewSaveNew.prop('disabled',false);reviewOverwrite.prop('disabled',false);
+            reviewMessage('保存失败：'+err,true);
+        });
+    }
+
     function attachResult(row,data) {
         var sources=Array.isArray(data.sources)?data.sources:[];
         if(sources.length) {
@@ -206,17 +334,7 @@ kodReady.push(function () {
             var action=$('<button type="button" class="aic-action"></button>')
                 .text(proposal.kind==='revision'?'查看差异并确认':'在编辑器中检查并保存')
                 .appendTo(row);
-            action.on('click',function(){
-                if(proposal.kind==='revision') {
-                    if(typeof window.aiRagLiteOpenWriterRevision==='function')
-                        window.aiRagLiteOpenWriterRevision(proposal.folder,proposal.name,proposal.content);
-                    else setStatus('文档编辑器尚未加载，请刷新页面',true);
-                } else {
-                    if(typeof window.aiRagLiteOpenWriterDraft==='function')
-                        window.aiRagLiteOpenWriterDraft(proposal.title,proposal.content);
-                    else setStatus('文档编辑器尚未加载，请刷新页面',true);
-                }
-            });
+            action.on('click',function(){showProposalReview(proposal);});
         }
     }
     function submit() {
@@ -446,6 +564,9 @@ kodReady.push(function () {
         layer.hide();
         $('#airaglite-writer-open').trigger('click');
     });
+    reviewClose.on('click',closeReview);
+    reviewSaveNew.on('click',function(){saveProposal(false);});
+    reviewOverwrite.on('click',function(){saveProposal(true);});
     cancel.on('click',closePicker);
     picker.on('click',function(e){if(e.target===picker[0])closePicker();});
     back.on('click',function(){
