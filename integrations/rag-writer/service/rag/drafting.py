@@ -203,8 +203,15 @@ def register_routes(app,cfg,authorize,retrieve):
         try:
             content=chat(cfg,[{'role':'system','content':RULES},{'role':'user','content':prompt}])
         except (requests.RequestException,ValueError) as exc:
-            log.warning('Draft error %s',type(exc).__name__)
-            raise HTTPException(status_code=502,detail='生成失败，请检查 RAG 日志') from exc
+            # Log only sanitized failure metadata; never log prompts, API keys,
+            # request URLs, provider bodies, or private document content.
+            if isinstance(exc,requests.HTTPError) and exc.response is not None:
+                upstream_status=exc.response.status_code
+                log.warning('Draft model provider HTTP status=%s',upstream_status)
+                raise HTTPException(status_code=502,
+                    detail='文档生成模型上游接口返回 HTTP '+str(upstream_status)) from exc
+            log.warning('Draft model provider failure: %s',type(exc).__name__)
+            raise HTTPException(status_code=502,detail='文档生成模型调用失败，请检查 RAG 日志') from exc
         if not content:raise HTTPException(status_code=502,detail='模型没有返回文档正文')
         return {'content':content,'source_note':note,'used_sources':bool(blocks),'sources':sources}
     @app.post('/v1/revise',dependencies=[Depends(authorize)])
