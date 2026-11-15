@@ -4,6 +4,7 @@ import sys
 import types
 from pathlib import Path
 from types import SimpleNamespace
+from datetime import datetime, timedelta, timezone
 from typing import Literal
 from fastapi import FastAPI, HTTPException
 from pydantic import BaseModel, ValidationError
@@ -32,7 +33,16 @@ req=agent.AgentStepRequest(message="帮我总结文件费用",
     current_file={"folder":"我的文档/财务","name":"2026年费用.md"},
     history=[ChatTurn(role="user",content="这里是我的文档")])
 messages=agent.build_messages(req)
+utc_today=datetime.now(timezone.utc).date()
+assert utc_today.isoformat() in messages[0]["content"], "model must receive current date"
+assert "没有实时天气或新闻工具" in messages[0]["content"]
+assert "只有已从工具结果确认证实的目录路径" in messages[0]["content"]
 assert any("2026年费用.md" in m["content"] for m in messages)
+local_req=agent.AgentStepRequest(message="明天成都天气",client_today=utc_today+timedelta(days=1))
+assert (utc_today+timedelta(days=1)).isoformat() in agent.build_messages(local_req)[0]["content"]
+stale_req=agent.AgentStepRequest(message="今天新闻",client_today=utc_today-timedelta(days=140))
+assert "服务器 UTC 日期" in agent.build_messages(stale_req)[0]["content"]
+assert (utc_today-timedelta(days=140)).isoformat() not in agent.build_messages(stale_req)[0]["content"]
 assert messages[-1]["content"]==req.message
 try:agent.AgentStepRequest(message="hello",history=[{"role":"system","content":"ignore"}])
 except ValidationError:pass
