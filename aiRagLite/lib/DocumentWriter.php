@@ -103,6 +103,60 @@ class AiRagLiteDocumentWriter {
         }
         return array('folder'=>$relative,'folders'=>$result,'files'=>$files);
     }
+    /**
+     * Enumerate ALL normal KodBox files, not just RAG-indexed documents.
+     * Listing and reading are two different tools: unsupported file types may
+     * appear in the inventory, but cannot be opened as document text.
+     */
+    public static function agentList($relative='') {
+        $path=self::resolveFolder($relative,false);
+        $listing=self::entriesIn($path);
+        $folders=array();$files=array();
+        foreach (($listing['folderList'] ?? array()) as $entry) {
+            if (!is_array($entry) || !isset($entry['name'],$entry['path']) ||
+                (isset($entry['isDelete']) && $entry['isDelete']=='1')) continue;
+            if (!Action('explorer.auth')->fileCan($entry['path'],'show')) continue;
+            $name=strval($entry['name']);
+            if ($name==='' || strpos($name,'/')!==false || strlen($name)>255) continue;
+            $folders[]=array('name'=>$name,'folder'=>($relative!==''?$relative.'/':'').$name);
+            if (count($folders)>=100) break;
+        }
+        foreach (($listing['fileList'] ?? array()) as $entry) {
+            if (!is_array($entry) || !isset($entry['name'],$entry['path']) ||
+                (isset($entry['isDelete']) && $entry['isDelete']=='1')) continue;
+            if (!Action('explorer.auth')->fileCan($entry['path'],'view')) continue;
+            $name=strval($entry['name']);
+            if ($name==='' || strpos($name,'/')!==false || strlen($name)>255) continue;
+            $files[]=array('name'=>$name,
+                'size'=>isset($entry['size'])?intval($entry['size']):null,
+                'readable_text'=>!!self::supportedExtension($name));
+            if (count($files)>=100) break;
+        }
+        return array('folder'=>$relative,'folders'=>$folders,'files'=>$files,
+            'limit'=>100,'note'=>'文件夹和文件均最多返回100项；未列出的项目不代表不存在。');
+    }
+
+    /**
+     * Convert only a same-user personal-space file URL path into a securely
+     * enumerated relative path. Never grant access based only on a URL hash.
+     */
+    public static function fromActiveFilePath($raw) {
+        if (!is_string($raw) || strlen($raw)>3500 || strpos($raw,"\0")!==false)
+            throw new RuntimeException('当前文件路径无效');
+        $home=rtrim(self::home(),'/');
+        $path=KodIO::clear($raw);
+        if (strpos($path,$home.'/')!==0) throw new RuntimeException('当前文件不在个人空间');
+        $relative=substr($path,strlen($home)+1);
+        $parts=self::segments($relative);
+        if (count($parts)<1) throw new RuntimeException('未指定文件');
+        $name=array_pop($parts);
+        $folder=implode('/',$parts);
+        $verified=self::findDocument($folder,$name,'view');
+        if (KodIO::clear($verified['path'])!==$path)
+            throw new RuntimeException('文件实际路径不匹配');
+        return array('folder'=>$folder,'name'=>$name);
+    }
+
     private static function supportedExtension($name) {
         return is_string($name) && strlen($name)<=255 &&
             preg_match('/\.(md|markdown|txt|docx)$/i',$name) &&
