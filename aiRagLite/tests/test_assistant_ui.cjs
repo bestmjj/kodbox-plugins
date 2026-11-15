@@ -10,6 +10,7 @@ const dom=new JSDOM('<html><head></head><body><button id="airaglite-open">assist
 });
 const win=dom.window,$=require('jquery')(win);
 win.$=win.jQuery=$;
+win.confirm=()=>true;
 win.kodReady=[];
 win.aiRagLiteRenderMarkdown=(node,md)=>{node.textContent=md;};
 let activeSources=[];
@@ -64,7 +65,7 @@ win.kodApi={requestSend:function(route,payload,callback){
         if(payload.tool==='prepare_edit'){
             callback({code:true,data:{message:'修改稿已完成，原文件未改变。',
                 proposal:{kind:'revision',folder:args.folder,
-                name:args.name,content:'# 改写后内容'}}});
+                name:args.name,content:'# 改写后内容',hash:'a'.repeat(64),format:'md'}}});
         }else if(payload.tool==='prepare_new_document'){
             callback({code:true,data:{message:'新草稿已生成',
                 proposal:{kind:'new',title:'交接手册',content:'# 交接手册'}}});
@@ -80,6 +81,10 @@ win.kodApi={requestSend:function(route,payload,callback){
         }else{
             callback({code:false,data:'未知工具'});
         }
+    }else if(route.endsWith('/saveDraft')){
+        callback({code:true,data:{name:payload.title+'-saved.md',route:'#fileView&path=sample'}});
+    }else if(route.endsWith('/writerOverwrite')){
+        callback({code:true,data:{name:payload.name,backup:'2026年费用-before.md'}});
     }else if(route.endsWith('/agentCurrentFile')){
         callback({code:true,data:{folder:'我的文档/账单',name:'2026年费用.md'}});
     }else if(route.endsWith('/resolve')){
@@ -142,15 +147,42 @@ assert.match(one('#airaglite-chat-messages').text(),/未计入 1 条记录/);
 input.val('请修改这篇文章');send.trigger('click');
 const button=$('.aic-action').last();
 assert.match(button.text(),/查看差异/);
+const writesBeforeReview=calls.filter(x=>/\/(saveDraft|writerOverwrite)$/.test(x.route)).length;
 button.trigger('click');
-assert.deepEqual(opened,{kind:'revision',folder:'我的文档/账单',
-    name:'2026年费用.md',content:'# 改写后内容'});
+assert.equal(one('#airaglite-agent-review').css('display'),'flex');
+assert.equal(one('#airaglite-review-after').val(),'# 改写后内容');
+assert.match(one('#airaglite-review-before').text(),/2026年费用/);
+assert.equal(calls.filter(x=>/\/(saveDraft|writerOverwrite)$/.test(x.route)).length,
+    writesBeforeReview,'review itself never writes a file');
+one('#airaglite-review-close').trigger('click');
+assert.equal(one('#airaglite-agent-review').css('display'),'none');
+assert.equal(calls.filter(x=>/\/(saveDraft|writerOverwrite)$/.test(x.route)).length,
+    writesBeforeReview,'cancel does not mutate files');
+button.trigger('click');
+one('#airaglite-review-save-new').trigger('click');
+const newVersion=calls.filter(x=>x.route.endsWith('/saveDraft')).at(-1);
+assert.equal(newVersion.payload.folder,'我的文档/账单');
+assert.match(newVersion.payload.title,/AI修改版/);
+assert.equal(newVersion.payload.content,'# 改写后内容');
+button.trigger('click');
+one('#airaglite-review-overwrite').trigger('click');
+const update=calls.filter(x=>x.route.endsWith('/writerOverwrite')).at(-1);
+assert.equal(update.payload.hash,'a'.repeat(64));
+assert.equal(update.payload.confirm,'backup-and-overwrite');
+assert.match(one('#airaglite-chat-messages').text(),/备份/);
 
 one('#airaglite-chat-detach').trigger('click');
 assert.match(one('#airaglite-chat-file').text(),/未关联/);
 input.val('帮我写一份运维交接手册');send.trigger('click');
 $('.aic-action').last().trigger('click');
-assert.deepEqual(opened,{kind:'new',title:'交接手册',content:'# 交接手册'});
+assert.equal(one('#airaglite-review-after').val(),'# 交接手册');
+assert.equal(one('#airaglite-review-overwrite').css('display'),'none',
+    'new document cannot overwrite an existing one');
+one('#airaglite-review-save-new').trigger('click');
+const newDoc=calls.filter(x=>x.route.endsWith('/saveDraft')).at(-1);
+assert.equal(newDoc.payload.folder,'AI草稿');
+assert.equal(newDoc.payload.format,'md');
+assert.equal(newDoc.payload.content,'# 交接手册');
 
 one('#airaglite-chat-reset').trigger('click');
 input.val('我的资产有哪些');send.trigger('click');
@@ -174,4 +206,4 @@ $('.aic-tools button').filter(function(){return $(this).text()==='高级搜索';
 assert.equal(win._searchOpened,true,'advanced search remains accessible');
 
 dom.window.close();
-console.log('OK: Agent tool calls, file context, sources, currency math, local assets, proposal approval');
+console.log('OK: Agent tools, document context, sources, currency math, assets, safe in-chat review and save');
