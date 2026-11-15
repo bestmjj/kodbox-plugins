@@ -3,6 +3,7 @@ import base64
 import io
 import logging
 import re
+import time
 import zipfile
 from typing import Literal
 from collections import OrderedDict
@@ -62,25 +63,44 @@ def collect(cfg,topic,retrieve):
         blocks.append(item);budget-=len(item)+2
     return blocks,note,sources
 
+# Retry at most once for an explicit transient upstream HTTP error. Do not
+# retry request timeouts (the provider may already have generated the result),
+# auth failures, unsupported models, or malformed requests.
+_RETRYABLE_MODEL_HTTP={429,502,503,504}
+
+def _model_post(url,body,timeout,headers=None):
+    for attempt in range(2):
+        response=requests.post(url,json=body,headers=headers,timeout=timeout,
+            allow_redirects=False)
+        try:
+            response.raise_for_status()
+            return response
+        except requests.HTTPError:
+            if attempt or response.status_code not in _RETRYABLE_MODEL_HTTP:
+                raise
+            log.warning('Temporary draft/revision model HTTP status=%s, retry once',
+                response.status_code)
+            time.sleep(0.6)
+    raise RuntimeError('Unreachable model retry state')
+
 def chat(cfg,messages):
     if cfg.llm_provider=='openai-compatible':
         base=_validate_endpoint(cfg.openai_base_url)
         if not base.endswith('/v1') and '/v1/' not in base:base+='/v1'
-        r=requests.post(base+'/chat/completions',
-            json={'model':cfg.openai_chat_model,'messages':messages,'stream':False},
-            headers={'Authorization':'Bearer '+cfg.openai_api_key,'Content-Type':'application/json'},
-            timeout=(8,cfg.llm_timeout),allow_redirects=False)
-        r.raise_for_status()
+        r=_model_post(base+'/chat/completions',
+            {'model':cfg.openai_chat_model,'messages':messages,'stream':False},
+            timeout=(8,cfg.llm_timeout),
+            headers={'Authorization':'Bearer '+cfg.openai_api_key,
+                     'Content-Type':'application/json'})
         choices=r.json().get('choices') or []
         content=(choices[0].get('message') or {}).get('content') if choices else None
         if isinstance(content,list):
             content='\n'.join(c.get('text','') for c in content if isinstance(c,dict) and c.get('type')=='text')
     elif cfg.llm_provider=='ollama':
-        r=requests.post(cfg.ollama_url+'/api/chat',
-            json={'model':cfg.ollama_chat_model,'messages':messages,'stream':False,
-                  'options':{'num_ctx':8192,'num_predict':3600}},
-            timeout=(8,cfg.llm_timeout),allow_redirects=False)
-        r.raise_for_status()
+        r=_model_post(cfg.ollama_url+'/api/chat',
+            {'model':cfg.ollama_chat_model,'messages':messages,'stream':False,
+             'options':{'num_ctx':8192,'num_predict':3600}},
+            timeout=(8,cfg.llm_timeout))
         content=(r.json().get('message') or {}).get('content')
     else:return None
     return content.strip()[:50000] if isinstance(content,str) and content.strip() else None
