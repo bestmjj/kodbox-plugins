@@ -11,6 +11,8 @@ const dom=new JSDOM('<html><head></head><body><button id="airaglite-open">assist
 const win=dom.window,$=require('jquery')(win);
 win.$=win.jQuery=$;
 win.confirm=()=>true;
+let openedSource=null;
+win.open=()=>({closed:false,location:{replace:function(url){openedSource=url;}},close:function(){}});
 win.kodReady=[];
 win.aiRagLiteRenderMarkdown=(node,md)=>{node.textContent=md;};
 let activeSources=[];
@@ -74,6 +76,14 @@ win.kodApi={requestSend:function(route,payload,callback){
                 totals:[{currency:'CNY',amount:'115.00',rows:2},
                     {currency:'USD',amount:'10.46',rows:1}],
                 skipped_rows:1,method:'仅明确币种的记录'}}});
+        }else if(payload.tool==='find_files'){
+            callback({code:true,data:{
+                query:args.query,indexed_only:true,results:[{
+                    name:'萌宠短视频流程.md',
+                    path:'与我协作/用户[admin]/我的文档/学习/短视频/萌宠短视频流程.md',
+                    location:'第 1 行',snippet:'# 萌宠短视频制作流程'
+                }],count:1
+            }});
         }else if(payload.tool==='search_knowledge'){
             callback({code:true,data:{results:[
                 {name:'a.md',path:'与我协作/用户[admin]/我的文档/a.md',
@@ -109,7 +119,7 @@ assert.match(one('#airaglite-chat-file').text(),/未关联/);
 const input=one('#airaglite-chat-input');
 const send=one('#airaglite-chat-send');
 
-input.val('查找 Ceph 部署资料');send.trigger('click');
+input.val('请解释 Ceph 部署步骤中的关键命令');send.trigger('click');
 let query=calls.filter(x=>x.route.endsWith('/agentStep')).at(-1);
 assert.equal(query.payload.file_name,'');
 assert.equal(query.payload.history_json,'[]');
@@ -120,7 +130,28 @@ query=calls.filter(x=>x.route.endsWith('/agentStep')).at(-1);
 const history=JSON.parse(query.payload.history_json);
 assert.equal(history[0].role,'user');
 assert.equal(history[1].role,'assistant');
-assert.equal(history[0].content,'查找 Ceph 部署资料');
+assert.equal(history[0].content,'请解释 Ceph 部署步骤中的关键命令');
+
+// Short file names should bypass blind directory wandering and use RAG
+// filename search exactly once, without any model tool-selection latency.
+const modelCallsBeforeLookup=calls.filter(x=>x.route.endsWith('/agentStep')).length;
+const folderCallsBeforeLookup=calls.filter(x=>x.route.endsWith('/agentTool') &&
+    x.payload.tool==='list_folder').length;
+input.val('短视频流程');send.trigger('click');
+assert.equal(calls.filter(x=>x.route.endsWith('/agentStep')).length,
+    modelCallsBeforeLookup,'short file title bypasses LLM planning');
+assert.equal(calls.filter(x=>x.route.endsWith('/agentTool') &&
+    x.payload.tool==='list_folder').length,folderCallsBeforeLookup,
+    'short file lookup must not explore unrelated project folders');
+const found=calls.filter(x=>x.route.endsWith('/agentTool')).at(-1);
+assert.equal(found.payload.tool,'find_files');
+assert.equal(JSON.parse(found.payload.arguments_json).query,'短视频流程');
+assert.match(one('#airaglite-chat-messages').text(),/萌宠短视频流程.md/);
+const sourceButton=$('.aic-file-item').last();
+assert.match(sourceButton.text(),/萌宠短视频流程.md/);
+sourceButton.trigger('click');
+assert.ok(calls.some(x=>x.route.endsWith('/resolve') &&
+    x.payload.path.includes('萌宠短视频流程.md')),'open source checks KodBox permissions');
 
 one('#airaglite-chat-attach').trigger('click');
 assert.equal(one('#airaglite-chat-picker').css('display'),'flex');
@@ -187,7 +218,7 @@ assert.equal(newDoc.payload.content,'# 交接手册');
 one('#airaglite-chat-reset').trigger('click');
 input.val('我的资产有哪些');send.trigger('click');
 assert.match(one('#airaglite-chat-status').text(),/本地执行/);
-input.val('查找另外的知识库资料');send.trigger('click');
+input.val('请解释另一种集群配置思路');send.trigger('click');
 const afterAssets=calls.filter(x=>x.route.endsWith('/agentStep')).at(-1);
 assert.equal(afterAssets.payload.history_json,'[]',
   'asset result must not be replayed as external model history');
