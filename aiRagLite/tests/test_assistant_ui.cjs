@@ -38,6 +38,12 @@ win.kodApi={requestSend:function(route,payload,callback){
             title:'2026年费用',content:'# 2026年费用',hash:'a'.repeat(64)}});
     }else if(route.endsWith('/agentStep')){
         if(failed){callback({code:false,data:'模拟请求失败'});return;}
+        if(payload.message==='封装层测试'){
+            callback({code:true,data:{data:{kind:'final',answer:'封装响应正常'}}});return;
+        }
+        if(payload.message==='简化回答测试'){
+            callback({code:true,data:{answer:'无 kind 的回答正常'}});return;
+        }
         const steps=JSON.parse(payload.observations_json);
         if(payload.message.includes('资产')){
             callback({code:true,data:{kind:'final',mode:'asset_live',answer:'资产 3 项'}});
@@ -131,6 +137,15 @@ const history=JSON.parse(query.payload.history_json);
 assert.equal(history[0].role,'user');
 assert.equal(history[1].role,'assistant');
 assert.equal(history[0].content,'请解释 Ceph 部署步骤中的关键命令');
+
+// Backend can legitimately return a final answer without calling tools.
+// Older installations may also wrap an otherwise valid agent result once more.
+input.val('封装层测试');send.trigger('click');
+assert.match(one('#airaglite-chat-messages').text(),/封装响应正常/);
+assert.doesNotMatch(one('#airaglite-chat-status').text(),/失败/);
+input.val('简化回答测试');send.trigger('click');
+assert.match(one('#airaglite-chat-messages').text(),/无 kind 的回答正常/);
+assert.equal(send.prop('disabled'),false);
 
 // Short file names should bypass blind directory wandering and use RAG
 // filename search exactly once, without any model tool-selection latency.
