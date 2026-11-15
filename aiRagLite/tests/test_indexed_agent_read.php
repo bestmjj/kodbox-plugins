@@ -11,7 +11,7 @@ class Input {
     public static $values=array();
     public static function get($key) {return self::$values[$key] ?? null;}
 }
-class TestResponse extends RuntimeException {
+// show_json terminates a real KodBox request; use Error to bypass the plugin's\n// catch (Exception) and accurately simulate that terminal response.\nclass TestResponse extends Error {
     public $payload;
     public function __construct($payload,$good) {
         $this->payload=$payload;
