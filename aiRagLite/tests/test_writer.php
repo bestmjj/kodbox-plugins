@@ -98,6 +98,17 @@ try {
     AiRagLiteDocumentWriter::readDocument('项目','../other.md','','');
     throw new RuntimeException('traversal accepted');
 }catch(RuntimeException $e){ok(strpos($e->getMessage(),'支持')!==false,'file name traversal rejected');}
+$agentFiles=AiRagLiteDocumentWriter::agentList('项目');
+ok(count($agentFiles['files'])>=2,'agent enumerates real files');
+ok(in_array($name,array_column($agentFiles['files'],'name'),true),'agent lists existing document');
+$current=AiRagLiteDocumentWriter::fromActiveFilePath($third['path']);
+ok($current['folder']==='项目' && $current['name']===$name,'virtual current file resolved');
+try {
+    AiRagLiteDocumentWriter::fromActiveFilePath('{source:9999}/secret.md');
+    throw new RuntimeException('unowned file accepted');
+} catch(RuntimeException $e) {
+    ok(strpos($e->getMessage(),'未找到')!==false,'unowned file rejected');
+}
 foreach(array('../x','/tmp','项目/../x','项目//x') as $bad){
     try{AiRagLiteDocumentWriter::resolveFolder($bad);throw new RuntimeException('bad path accepted');}
     catch(RuntimeException $e){ok(strpos($e->getMessage(),'路径')!==false || strpos($e->getMessage(),'目录')!==false,'reject traversal');}
