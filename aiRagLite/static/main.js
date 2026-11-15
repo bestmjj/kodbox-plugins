@@ -58,6 +58,14 @@ kodReady.push(function () {
     var layer = $('<div id="airaglite-overlay"></div>').appendTo('body');
     var panel = $('<div id="airaglite-dialog"></div>').appendTo(layer);
     var head = $('<div id="airaglite-header"><span>智能检索 · Kodbox 文档 + 数字资产</span></div>').appendTo(panel);
+    var assistantLink=$('<button type="button" id="airaglite-search-to-agent">✨ AI 助手</button>')
+        .css({marginLeft:'auto',border:'1px solid #bfdbfe',background:'#eff6ff',
+            color:'#1d4ed8',borderRadius:'7px',padding:'7px 11px',cursor:'pointer'})
+        .appendTo(head);
+    assistantLink.on('click',function(){
+        layer.hide();
+        if(typeof window.aiRagLiteOpenAssistant==='function')window.aiRagLiteOpenAssistant();
+    });
     $('<button type="button" id="airaglite-close" aria-label="关闭">×</button>').appendTo(head);
     var form = $('<form id="airaglite-form"></form>').appendTo(panel);
     var query = $('<input id="airaglite-query" type="text" maxlength="300" placeholder="例如：我的数字资产 / Nuyek 关联了什么 / 文档错误码"/>').appendTo(form);
