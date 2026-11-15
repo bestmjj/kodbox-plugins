@@ -393,8 +393,34 @@ kodReady.push(function () {
         chooseFolder(attached?attached.folder:'');
     }
     function closePicker() {browseId++;picker.hide();}
+    window.aiRagLiteSetActiveDocument=function(folder,name){
+        if(pending){setStatus('请先等当前工具调用结束',true);return false;}
+        if(typeof folder!=='string'||typeof name!=='string'||!name||name.length>255)return false;
+        attached={folder:folder,name:name};
+        updateFileLabel();
+        reset('已关联 KodBox 文件：'+name+'。可以直接提问，无需重新生成草稿。');
+        return true;
+    };
+    var lastDetectedHash='';
+    function detectOpenedFile(){
+        if(attached)return;
+        var hash=String(window.location.hash||'');
+        if(hash===lastDetectedHash)return;
+        var match=hash.match(/^#fileView&path=([^&]+)/);
+        if(!match)return;
+        lastDetectedHash=hash;
+        var current;
+        try{current=decodeURIComponent(match[1]);}catch(e){return;}
+        apiRequest('agentCurrentFile',{path:current},function(data){
+            if(attached||pending)return;
+            if(data&&typeof data.name==='string'&&typeof data.folder==='string')
+                window.aiRagLiteSetActiveDocument(data.folder,data.name);
+        },function(){/* Only current user's personal files may be auto attached. */});
+    }
     window.aiRagLiteOpenAssistant=function(){
-        layer.css('display','flex');input.trigger('focus');
+        layer.css('display','flex');
+        detectOpenedFile();
+        input.trigger('focus');
     };
     send.on('click',submit);
     input.on('keydown',function(e){
