@@ -313,6 +313,47 @@ kodReady.push(function () {
         });
     }
 
+    function wantsExistingDocumentEdit(question) {
+        var q=String(question||'').trim();
+        return /(?:编辑|修改|改写|润色|重写|调整|精简|补充)/.test(q) &&
+            /(?:文档|文件|文章|笔记|流程|教程|手册|报告|方案|这篇|这个文件|\\.(?:md|txt|docx)\\b)/i.test(q);
+    }
+    // Indexed file paths cannot be used as folder arguments. First resolve a
+    // candidate under the active KodBox session, then map it back into the
+    // *current user's* personal files before allowing an edit proposal.
+    function attachIndexedDocumentForEdit(hit,instruction) {
+        if(pending){setStatus('当前任务尚未结束，请稍后选择文件',true);return;}
+        if(!hit || typeof hit.path!=='string' || !hit.path){setStatus('候选文件路径无效',true);return;}
+        setStatus('正在确认 KodBox 文件权限和个人空间位置……');
+        apiRequest('resolve',{path:hit.path},function(found) {
+            var route=String(found.route||'');
+            if(!safeRoute(route)){setStatus('文件验证返回了无效路径',true);return;}
+            var match=route.match(/^#fileView&path=([^&]+)/);
+            if(!match){setStatus('无法确认原文件位置',true);return;}
+            var verifiedPath;
+            try{verifiedPath=decodeURIComponent(match[1]);}catch(e){setStatus('原文件路径编码无效',true);return;}
+            apiRequest('agentCurrentFile',{path:verifiedPath},function(doc) {
+                var expectedName=String(hit.name||String(hit.path).split('/').pop());
+                if(!doc || typeof doc.folder!=='string' || typeof doc.name!=='string' ||
+                    doc.name!==expectedName) {
+                    setStatus('已验证路径和所选文件不匹配，停止关联',true);return;
+                }
+                attached={folder:doc.folder,name:doc.name};
+                turns=[];
+                updateFileLabel();
+                addTurn('assistant','已关联 '+doc.name+'。请说明希望如何修改，例如“精简第二部分并保留操作步骤”。' +
+                    ' AI 将先提供修改稿供审阅，不会直接覆盖原文。');
+                // Reuse specific instructions, but never turn an ambiguous
+                // "I want to edit this" into an arbitrary unsolicited rewrite.
+                var vague=/^(?:我想|我要|帮我|请帮我|请|想)?(?:编辑|修改|润色)(?:一下|这篇|这个|我的)?[^，。；;]{0,25}(?:文章|文档|文件|笔记|流程|手册)?[。！!？?]*$/.test(String(instruction||'').trim());
+                input.val(vague?'':String(instruction||'').trim().slice(0,1800)).trigger('focus');
+                setStatus('已验证并关联文件，请输入或确认修改要求');
+            },function(err){
+                setStatus('当前文件无法关联为可编辑个人文档：'+String(err).slice(0,180),true);
+            });
+        },function(err){setStatus('无法验证索引原文件：'+String(err).slice(0,180),true);});
+    }
+
     // Short file-title lookups should reuse the existing RAG index directly.
     // This is a deterministic, safe retrieval shortcut; other requests still
     // go through the model-selected KodBox Agent tools.
@@ -321,6 +362,7 @@ kodReady.push(function () {
         var q=String(question||'').trim();
         if (q.length<2 || q.length>90) return false;
         if (/资产|台账|订阅费用|账单统计|费用汇总/.test(q)) return false;
+        if (wantsExistingDocumentEdit(q)) return false;
         if (/列出.*(?:文件夹|目录)|(?:文件夹|目录).*(?:有哪些|列出|子目录)|新建|创建|生成|帮我写|修改|润色|删除|移动|重命名|覆盖|帮我总结|分析|计算|统计/.test(q))
             return false;
         var fileHint=/文件|文档|文章|资料|笔记|流程|教程|手册|报告|方案|脚本|配置|\.md\b|\.txt\b|\.docx\b/i;
@@ -351,8 +393,16 @@ kodReady.push(function () {
                     $('<span class="aic-file-snippet"></span>').text(String(hit.snippet).slice(0,300)).appendTo(btn);
                 btn.attr('title','通过当前 KodBox 登录会话验证权限后打开原文件');
                 btn.on('click',function(){openSource(hit);});
+                if(typeof data.edit_instruction==='string' && data.edit_instruction &&
+                    /\\.(?:md|markdown|txt|docx)$/i.test(String(hit.name||hit.path.split('/').pop()))) {
+                    $('<button type="button" class="aic-action"></button>')
+                        .text('关联并用 AI 编辑').appendTo(candidates)
+                        .on('click',function(){attachIndexedDocumentForEdit(hit,data.edit_instruction);});
+                }
             });
             $('<div class="aic-attachment-note"></div>').text(
+                data.edit_instruction ?
+                '请选择目标文件并点击“关联并用 AI 编辑”。验证当前用户权限后，可提交具体修改要求；原文件不会自动改变。' :
                 '以上是 RAG 索引中的候选文件。点击后才会核验权限并打开原件；找不到不等于文件不存在。'
             ).appendTo(row);
         }
@@ -552,10 +602,22 @@ kodReady.push(function () {
                             });
                         });
                     }
+                    // An edit request with no selected document needs a real
+                    // verified target before prepare_edit can be executed.
+                    // Do not let model guesses become writable file paths.
+                    if(tool==='find_files' && !attached && wantsExistingDocumentEdit(question)) {
+                        var editHits=Array.isArray(result.results)?result.results:[];
+                        finish(editHits.length ?
+                            '找到 '+editHits.length+' 个候选文件。请选择你要编辑的文章；验证权限后再告诉 AI 具体修改要求。' :
+                            'RAG 索引没有找到对应文章。请先用“关联文件”选择具体文件，再告诉 AI 如何修改。',
+                            {mode:'edit_lookup',sources:sources,lookup_results:editHits,
+                             edit_instruction:question});
+                        return;
+                    }
                     // A short lookup request needs the actual candidate files,
                     // not another expensive model turn that may repeat find_files.
                     if(tool==='find_files' && !attached && question.length<=45 &&
-                        !/总结|分析|比较|对比|计算|统计|写|修改|整理/.test(question)) {
+                        !/总结|分析|比较|对比|计算|统计|写|修改|编辑|改写|润色|重写|调整|精简|补充|整理/.test(question)) {
                         var hits=Array.isArray(result.results)?result.results:[];
                         finish(hits.length?
                             '在 RAG 索引中找到 '+hits.length+' 个候选文件，点击文件可验证权限后打开。':
