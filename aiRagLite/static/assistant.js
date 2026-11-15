@@ -470,7 +470,8 @@ kodReady.push(function () {
             }
             setStatus(extra&&extra.mode==='asset_live'?
                 '资产查询只在本地执行，没有发送到语言模型':
-                '已完成本轮工具调用；原文件没有改变');
+                (audit.length?'已完成本轮工具调用；原文件没有改变':
+                'AI 已回答；本轮未执行任何文件操作'));
             scrollBottom();
         }
         function fail(err) {
