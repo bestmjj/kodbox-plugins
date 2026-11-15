@@ -49,6 +49,10 @@ win.kodApi={requestSend:function(route,payload,callback){
             callback({code:true,data:{kind:'final',
                 answer:'目前没有接入实时天气数据，因此不能核实明天的预报。'}});return;
         }
+        if(payload.message==='进入国内外要闻'){
+            callback({code:true,data:{kind:'tool',tool:'list_folder',
+                arguments:{folder:'国内外要闻'}}});return;
+        }
         if(payload.message==='资阳联系人'){
             callback({code:true,data:{kind:'tool',tool:'find_files',
                 arguments:{query:'资阳联系人',limit:12,search_mode:'index',path:''}}});
@@ -102,7 +106,13 @@ win.kodApi={requestSend:function(route,payload,callback){
     }else if(route.endsWith('/agentTool')){
         if(failedTool){callback({code:false,data:'不支持的工具或参数'});return;}
         const args=JSON.parse(payload.arguments_json);
-        if(payload.tool==='prepare_edit'){
+        if(payload.tool==='list_folder'){
+            if(args.folder!=='' && args.folder!=='我的文档')
+                throw Error('model invented folder '+args.folder);
+            callback({code:true,data:{folder:args.folder,
+                folders:args.folder===''?[{name:'我的文档',folder:'我的文档'}]:[],
+                files:[]}});
+        }else if(payload.tool==='prepare_edit'){
             callback({code:true,data:{message:'修改稿已完成，原文件未改变。',
                 proposal:{kind:'revision',folder:args.folder,
                 name:args.name,content:'# 改写后内容',hash:'a'.repeat(64),format:'md'}}});
@@ -260,6 +270,21 @@ assert.equal(calls.filter(x=>x.route.endsWith('/agentStep')).length,directBefore
 assert.equal(calls.filter(x=>x.route.endsWith('/agentTool')).length,directToolBefore,
     'general chat does not force a RAG tool call');
 assert.match(one('#airaglite-chat-status').text(),/AI 已回答；本轮未执行任何文件操作/);
+assert.match(calls.filter(x=>x.route.endsWith('/agentStep')).at(-1).payload.client_today,
+    /^\d{4}-\d{2}-\d{2}$/,
+    'browser calendar date must be included in model request');
+
+// An agent may guess a folder path, but must not execute unverified folder reads.
+const foldersBefore=calls.filter(x=>x.route.endsWith('/agentTool') &&
+    x.payload.tool==='list_folder').length;
+input.val('进入国内外要闻');send.trigger('click');
+const folderCalls=calls.filter(x=>x.route.endsWith('/agentTool') &&
+    x.payload.tool==='list_folder').slice(foldersBefore);
+assert.equal(folderCalls.length,1,'unverified directory must not be entered');
+assert.equal(JSON.parse(folderCalls[0].payload.arguments_json).folder,'',
+    'directory must first be enumerated under the active KodBox account');
+assert.match(one('#airaglite-chat-messages').text(),/未找到“国内外要闻”/);
+assert.equal(send.prop('disabled'),false);
 
 // Edit intent must not silently bypass AI as an ordinary file title search.
 const editStepsBefore=calls.filter(x=>x.route.endsWith('/agentStep')).length;
