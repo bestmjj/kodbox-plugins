@@ -111,7 +111,7 @@ kodReady.push(function () {
     $('<style id="airaglite-writer-styles"></style>').text(css).appendTo('head');
 
     // Keep the launcher alongside the existing search dialog title.
-    var trigger = $('<button type="button" id="airaglite-writer-open">✨ AI 助手</button>')
+    var trigger = $('<button type="button" id="airaglite-writer-open">📄 文档编辑</button>')
       .css({marginLeft:'auto',marginRight:'12px',border:'1px solid #cbd5e1',padding:'5px 10px',
             borderRadius:'6px',background:'#fff',color:'#1754ac'})
       .insertBefore('#airaglite-close');
@@ -120,12 +120,13 @@ kodReady.push(function () {
     var dialog = $('<div id="airaglite-writer-dialog" role="dialog" aria-modal="true" aria-labelledby="airaglite-writer-heading"></div>').appendTo(overlay);
     var header = $('<div class="alw-header"></div>').appendTo(dialog);
     var heading = $('<div class="alw-heading"></div>').appendTo(header);
-    $('<strong id="airaglite-writer-heading"></strong>').text('KodBox AI 助手 · 文档').appendTo(heading);
+    $('<strong id="airaglite-writer-heading"></strong>').text('文档编辑器（高级工具）').appendTo(heading);
     $('<span class="alw-muted"></span>').text('打开已有文档 · 按要求修改 · 对比确认 · 保存新版本').appendTo(heading);
 var widthTools = $('<div class="alw-width-tools" role="group" aria-label="左右栏宽度"></div>').appendTo(header);
     var leftWide = $('<button type="button" id="airaglite-writer-left-wide" title="加宽左侧写作设置">左侧更宽</button>').appendTo(widthTools);
     var rightWide = $('<button type="button" id="airaglite-writer-right-wide" title="加宽右侧编辑或预览区">右侧更宽</button>').appendTo(widthTools);
     var resetWide = $('<button type="button" id="airaglite-writer-reset-wide" title="恢复默认宽度">恢复默认</button>').appendTo(widthTools);
+    var toAssistant = $('<button type="button" class="alw-secondary" id="airaglite-writer-back-to-assistant">← 返回 AI 助手</button>').appendTo(header);
     var close = $('<button type="button" class="alw-close">关闭</button>').appendTo(header);
 
     var body = $('<div id="airaglite-writer-body"></div>').appendTo(dialog);
@@ -531,6 +532,13 @@ var widthTools = $('<div class="alw-width-tools" role="group" aria-label="左右
     }
 
     trigger.on('click', function () { overlay.css('display','flex'); setPaneWidth(leftWidth); title.trigger('focus'); });
+    toAssistant.on('click', function () {
+        finishDrag();overlay.hide();closePicker();
+        if (loadedDoc && typeof window.aiRagLiteSetActiveDocument==='function')
+            window.aiRagLiteSetActiveDocument(loadedDoc.folder,loadedDoc.name);
+        if (typeof window.aiRagLiteOpenAssistant==='function')
+            window.aiRagLiteOpenAssistant();
+    });
     close.on('click', function () { finishDrag(); overlay.hide(); closePicker(); });
     overlay.on('click', function (event) { if (event.target === overlay[0]) { finishDrag(); overlay.hide(); } });
     editTab.on('click', function () { showTab('edit'); editor.trigger('focus'); });
