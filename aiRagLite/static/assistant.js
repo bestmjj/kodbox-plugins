@@ -530,6 +530,18 @@ kodReady.push(function () {
                     return;
                 }
                 var tool=step.tool,args=step.arguments;
+                if(tool==='prepare_edit') {
+                    // A model-proposed path alone cannot identify the user's
+                    // intended editing target. Require explicit, verified link.
+                    if(!attached) {
+                        finish('要修改已有文章，请先关联具体文件。你可以点上方“关联文件”，或先让我查找文章。');
+                        return;
+                    }
+                    if(args.folder!==attached.folder || args.name!==attached.name) {
+                        fail('AI 选择的编辑文件与当前关联文件不一致，已停止修改准备。');
+                        return;
+                    }
+                }
                 // Accept only the bounded query for read-only RAG tools.
                 // Models sometimes include unsupported optional fields.
                 if(tool==='find_files' || tool==='search_knowledge') {
