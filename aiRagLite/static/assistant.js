@@ -435,6 +435,12 @@ kodReady.push(function () {
         var history=turns.slice(-6).map(function(x){
             return {role:x.role,content:x.content.slice(0,1800)};
         });
+        // Use the calendar date shown by the user's browser, not an LLM guess.
+        // The RAG API only accepts dates within one day of server UTC.
+        var now=new Date();
+        var clientToday=now.getFullYear()+'-'+
+            String(now.getMonth()+1).padStart(2,'0')+'-'+
+            String(now.getDate()).padStart(2,'0');
         addTurn('user',question);
         input.val('');
         pending=true;send.prop('disabled',true).text('处理中…');
@@ -508,7 +514,8 @@ kodReady.push(function () {
                 observations_json:JSON.stringify(observations),
                 file_folder:attached?attached.folder:'',
                 file_name:attached?attached.name:'',
-                force_final:forceFinal?'1':'0'
+                force_final:forceFinal?'1':'0',
+                client_today:clientToday
             },function(data){
                 if(id!==requestId)return;
                 var step=normalizeAgentStep(data);
@@ -531,6 +538,40 @@ kodReady.push(function () {
                     return;
                 }
                 var tool=step.tool,args=step.arguments;
+                if(tool==='list_folder' && !attached && typeof args.folder==='string' &&
+                    args.folder!=='') {
+                    // A model suggestion is not proof that a directory exists.
+                    // Discover it from the real authorized folder listing first.
+                    var verifiedFolders=[];
+                    observations.filter(function(obs){return obs.tool==='list_folder';})
+                        .forEach(function(obs){
+                            try {
+                                var out=JSON.parse(obs.result);
+                                if(out && Array.isArray(out.folders)) {
+                                    out.folders.forEach(function(folder){
+                                        if(folder && typeof folder.folder==='string')
+                                            verifiedFolders.push(folder.folder);
+                                    });
+                                }
+                            } catch(e) {}
+                        });
+                    if(verifiedFolders.indexOf(args.folder)===-1) {
+                        var hadRoot=observations.some(function(obs){
+                            return obs.tool==='list_folder' &&
+                                obs.arguments && obs.arguments.folder==='';
+                        });
+                        if(!hadRoot) {
+                            args={folder:''};
+                        } else {
+                            var choices=verifiedFolders.slice(0,12).join('、');
+                            finish('我查看了 KodBox 已列出的目录，未找到“'+
+                                String(args.folder).slice(0,100)+
+                                '”。'+(choices?'目前找到：'+choices+'。':'')+
+                                '请确认目录名称，或用“关联文件”浏览实际目录。');
+                            return;
+                        }
+                    }
+                }
                 if(tool==='prepare_edit') {
                     // A model-proposed path alone cannot identify the user's
                     // intended editing target. Require explicit, verified link.
