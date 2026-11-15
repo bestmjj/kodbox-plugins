@@ -371,6 +371,35 @@ class aiRagLitePlugin extends PluginBase {
      * The model never gets direct write permissions. All tools are authorized
      * under the current KodBox admin session, with strict tool-name allowlist.
      */
+    /**
+     * RAG/WebDAV index paths (e.g. 与我协作/用户[admin]/我的文档/...)
+     * are NOT personal-home relative folders. Resolve them through the
+     * existing KodBox session-permission-controlled DAV resolver.
+     * An exact filename match is required; never guess a different file.
+     */
+    private function agentReadDocument($folder,$name,$args,$base,$key) {
+        $indexed=trim(strval($args['indexed_path'] ?? ''));
+        if ($indexed==='' && (strpos($folder,'与我协作/')===0 ||
+            strpos($folder,'我所在的部门/')===0)) {
+            $indexed=rtrim($folder,'/').'/'.$name;
+        }
+        if ($indexed==='') {
+            return AiRagLiteDocumentWriter::readDocument($folder,$name,$base,$key);
+        }
+        $parts=$this->davParts($indexed);
+        if ($parts===false || count($parts)<2 || end($parts)!==$name)
+            throw new RuntimeException('索引路径与所请求的文件名不一致');
+        $this->lastResolveError='';
+        $resolved=$this->resolveDavFile($parts);
+        if (!$resolved) {
+            $detail=$this->lastResolveError ? '：'.$this->lastResolveError : '';
+            throw new RuntimeException('无法按当前 KodBox 账号权限定位索引原文件'.$detail);
+        }
+        if ($resolved['name']!==$name)
+            throw new RuntimeException('已验证文件与请求文件名不一致');
+        return AiRagLiteDocumentWriter::readVerifiedDocument($resolved,$base,$key);
+    }
+
     public function agentTool() {
         KodUser::checkRoot();
         if (($_SERVER['REQUEST_METHOD'] ?? '')!=='POST') show_json('POST only',false);
@@ -383,10 +412,10 @@ class aiRagLitePlugin extends PluginBase {
         if (is_string($args)) $args=json_decode($args,true);
         $toolFields=array(
             'list_folder'=>array('folder'),
-            'read_document'=>array('folder','name'),
+            'read_document'=>array('folder','name','indexed_path'),
             'find_files'=>array('query'),
             'search_knowledge'=>array('query'),
-            'calculate_expenses'=>array('folder','name'),
+            'calculate_expenses'=>array('folder','name','indexed_path'),
             'prepare_edit'=>array('folder','name','instructions'),
             'prepare_new_document'=>array('title','instructions'),
         );
@@ -423,7 +452,7 @@ class aiRagLitePlugin extends PluginBase {
                     break;
                 case 'read_document':
                     if (!$name) throw new RuntimeException('缺少具体文件名');
-                    $doc=AiRagLiteDocumentWriter::readDocument($folder,$name,$base,$key);
+                    $doc=$this->agentReadDocument($folder,$name,$args,$base,$key);
                     $original=$doc['content'];
                     $length=function_exists('mb_strlen')?mb_strlen($original,'UTF-8'):strlen($original);
                     $truncated=$length>5500;
@@ -461,7 +490,7 @@ class aiRagLitePlugin extends PluginBase {
                     break;
                 case 'calculate_expenses':
                     if (!$name) throw new RuntimeException('缺少费用文件名');
-                    $doc=AiRagLiteDocumentWriter::readDocument($folder,$name,$base,$key);
+                    $doc=$this->agentReadDocument($folder,$name,$args,$base,$key);
                     $summary=$this->backendData('agent-expenses',array(
                         'content'=>$doc['content'],'question'=>'统计费用总计'));
                     $out=array('folder'=>$folder,'name'=>$name,
