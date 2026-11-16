@@ -142,6 +142,9 @@ kodReady.push(function () {
     var browseId=0;
     var browsing='';
     var lastTopic='';
+    // Retain only indexed candidate identities in the current in-page conversation.
+    // An index result is not permission to read. agentTool revalidates each read.
+    var lastLookup=null;
 
     function setStatus(message,error) {
         status.text(String(message||'')).css('color',error?'#b91c1c':'#64748b');
@@ -179,7 +182,7 @@ kodReady.push(function () {
     }
     function reset(message) {
         if (pending) {setStatus('当前请求还没有完成',true);return false;}
-        turns=[];requestId++;lastTopic='';
+        turns=[];requestId++;lastTopic='';lastLookup=null;
         welcome();setStatus(message||'新对话已开始。历史消息只保存在当前网页。');
         return true;
     }
@@ -339,7 +342,7 @@ kodReady.push(function () {
                     setStatus('已验证路径和所选文件不匹配，停止关联',true);return;
                 }
                 attached={folder:doc.folder,name:doc.name};
-                turns=[];
+                lastLookup=null;turns=[];
                 updateFileLabel();
                 addTurn('assistant','已关联 '+doc.name+'。请说明希望如何修改，例如“精简第二部分并保留操作步骤”。' +
                     ' AI 将先提供修改稿供审阅，不会直接覆盖原文。');
@@ -372,6 +375,133 @@ kodReady.push(function () {
             !/[?？]$/.test(q);
     }
 
+    function isIndexedContentFollowUp(question) {
+        var q=String(question||'').trim();
+        if(q.length<2 || q.length>180)return false;
+        var reference=/(?:里面|其中|这篇|这份|这个文件|该文件|该文档|上面(?:那个|那篇)?|刚才(?:找|查|提到)?|它(?:的)?|全文|原文|文件内容|文档内容|内容)/.test(q);
+        var intent=/(?:看|查看|读|阅读|展示|显示|输出|打印|贴出|复制|概括|总结|分析|解释|介绍|具体|细节|步骤|写了什么|有哪些|是什么|全文|原文|内容)/.test(q);
+        return reference && intent;
+    }
+    function wantsVerbatimIndexedContent(question) {
+        var q=String(question||'').trim();
+        return /(?:看|查看|读|阅读|展示|显示|输出|打印|贴出|复制|全文|原文|内容)/.test(q) &&
+            !/(?:总结|概括|分析|解释|归纳|提炼|改写|修改|编辑|对比|比较|有哪些|为什么|如何|怎么做|作用|建议)/.test(q);
+    }
+    function displayReadError(reason) {
+        setStatus('文件读取失败：'+String(reason||'未知错误').slice(0,240),true);
+    }
+    // Read the *exact* indexed file through the existing authorized KodBox
+    // tool. Never treat an RAG snippet as the full document and never guess a
+    // personal-space folder from the WebDAV index path.
+    function readIndexedSource(hit,request) {
+        if(pending){setStatus('当前请求尚未完成',true);return;}
+        var path=hit && typeof hit.path==='string'?hit.path:'';
+        var name=hit && typeof hit.name==='string' && hit.name?
+            hit.name:String(path.split('/').pop());
+        if(!path || path.length>4800 || !name || name.length>255) {
+            displayReadError('索引文件信息不完整');return;
+        }
+        if(!/\.(?:md|markdown|txt|docx)$/i.test(name)){
+            displayReadError('目前只能读取 Markdown、TXT 和 Word 正文。其他文件请打开原件。');
+            return;
+        }
+        var q=String(request||'查看文件内容').trim().slice(0,1800);
+        if(q.length<2)q='查看文件内容';
+        if(messages.find('.aic-welcome').length)messages.empty();
+        var priorHistory=turns.slice(-6).map(function(t){
+            return {role:t.role,content:t.content.slice(0,1800)};
+        });
+        var raw=wantsVerbatimIndexedContent(q);
+        addTurn('user',q);
+        pending=true;send.prop('disabled',true).text('处理中…');
+        setStatus('正在按 KodBox 当前用户权限读取《'+name+'》……');
+        var id=++requestId;
+        var timer=window.setTimeout(function(){
+            if(id!==requestId)return;
+            requestId++;pending=false;send.prop('disabled',false).text('发送');
+            addTurn('assistant','文件读取或分析超时；没有修改原文件。');
+            displayReadError('执行超时');
+        },210000);
+        function failRead(reason) {
+            if(id!==requestId)return;
+            window.clearTimeout(timer);
+            pending=false;send.prop('disabled',false).text('发送');
+            addTurn('assistant','无法读取或分析《'+name+'》：'+String(reason));
+            displayReadError(reason);
+        }
+        function doneRead(answer,body,truncated) {
+            if(id!==requestId)return;
+            window.clearTimeout(timer);
+            pending=false;send.prop('disabled',false).text('发送');
+            var row=addTurn('assistant',answer,[{id:1,path:path,location:''}]);
+            if(typeof body==='string') {
+                $('<pre class="aic-raw-document"></pre>').text(body).css({
+                    whiteSpace:'pre-wrap',wordBreak:'break-word',maxHeight:'450px',
+                    overflow:'auto',border:'1px solid #dbe3ed',borderRadius:'8px',
+                    padding:'14px',background:'#f8fafc',fontSize:'13px',
+                    lineHeight:'1.7',margin:'12px 0'
+                }).appendTo(row);
+                if(truncated){
+                    $('<div class="aic-attachment-note"></div>').text(
+                        '这里只显示文件的前 5500 个字符；请打开原文件查看剩余内容。'
+                    ).appendTo(row);
+                }
+            }
+            $('<button type="button" class="aic-action"></button>')
+                .text('打开 KodBox 原文件').appendTo(row)
+                .on('click',function(){openSource(hit);});
+            lastLookup=[{path:path,name:name}];
+            turns.push({role:'user',content:q});
+            turns.push({role:'assistant',content:String(answer).slice(0,1800)});
+            if(turns.length>16)turns=turns.slice(-16);
+            setStatus('已按当前账号权限读取《'+name+'》；原文件没有改变');
+            scrollBottom();
+        }
+        var args={folder:'',name:name,indexed_path:path};
+        apiRequest('agentTool',{tool:'read_document',arguments_json:JSON.stringify(args)},
+            function(data) {
+                if(id!==requestId)return;
+                if(!data || typeof data.content!=='string') {
+                    failRead('KodBox 没有返回可用的文件正文');return;
+                }
+                if(raw){
+                    doneRead('以下是《'+name+'》的'+
+                        (data.truncated?'部分正文：':'正文：'),
+                        data.content,!!data.truncated);
+                    return;
+                }
+                // Only explicit analysis requests send the verified excerpt to
+                // the model. Raw reading stays inside KodBox/PHP.
+                var now=new Date();
+                var today=now.getFullYear()+'-'+
+                    String(now.getMonth()+1).padStart(2,'0')+'-'+
+                    String(now.getDate()).padStart(2,'0');
+                var observation={tool:'read_document',arguments:args,
+                    result:JSON.stringify(data).slice(0,6200)};
+                setStatus('已验证文件，AI 正在依据正文回答……');
+                apiRequest('agentStep',{
+                    message:q,history_json:JSON.stringify(priorHistory),
+                    observations_json:JSON.stringify([observation]),
+                    file_folder:'',file_name:'',force_final:'1',client_today:today
+                },function(response) {
+                    if(id!==requestId)return;
+                    var result=response;
+                    for(var n=0;n<3;n++){
+                        if(typeof result==='string'){
+                            try{result=JSON.parse(result);}catch(e){break;}
+                        }else if(result && typeof result==='object' && !result.kind &&
+                            result.data && typeof result.data==='object')result=result.data;
+                        else break;
+                    }
+                    if(!result || typeof result.answer!=='string' ||
+                        (result.kind && result.kind!=='final')){
+                        failRead('模型没有返回有效的正文分析结果');return;
+                    }
+                    doneRead(result.answer,null,!!data.truncated);
+                },function(err){failRead('模型分析失败：'+String(err));});
+            },function(err){failRead(err);});
+    }
+
     function attachResult(row,data) {
         var sources=Array.isArray(data.sources)?data.sources:[];
         if(sources.length) {
@@ -393,6 +523,15 @@ kodReady.push(function () {
                     $('<span class="aic-file-snippet"></span>').text(String(hit.snippet).slice(0,300)).appendTo(btn);
                 btn.attr('title','通过当前 KodBox 登录会话验证权限后打开原文件');
                 btn.on('click',function(){openSource(hit);});
+                if(/\.(?:md|markdown|txt|docx)$/i.test(String(hit.name||hit.path.split('/').pop()))) {
+                    $('<button type="button" class="aic-action aic-read-indexed"></button>')
+                        .text('读取正文').appendTo(candidates)
+                        .on('click',function(){
+                            readIndexedSource(hit,typeof data.read_instruction==='string' &&
+                                data.read_instruction ? data.read_instruction :
+                                '查看《'+String(hit.name||hit.path.split('/').pop())+'》的内容');
+                        });
+                }
                 if(typeof data.edit_instruction==='string' && data.edit_instruction &&
                     /\.(?:md|markdown|txt|docx)$/i.test(String(hit.name||hit.path.split('/').pop()))) {
                     $('<button type="button" class="aic-action"></button>')
@@ -401,6 +540,8 @@ kodReady.push(function () {
                 }
             });
             $('<div class="aic-attachment-note"></div>').text(
+                data.read_instruction ?
+                '找到多个候选文件，请先选择要读取的原文件。读取仍会验证 KodBox 当前用户权限。' :
                 data.edit_instruction ?
                 '请选择目标文件并点击“关联并用 AI 编辑”。验证当前用户权限后，可提交具体修改要求；原文件不会自动改变。' :
                 '以上是 RAG 索引中的候选文件。点击后才会核验权限并打开原件；找不到不等于文件不存在。'
@@ -431,6 +572,36 @@ kodReady.push(function () {
         var question=String(input.val()||'').trim();
         if(question.length<2){setStatus('请至少输入两个字符',true);return;}
         if(question.length>1800){setStatus('输入内容过长',true);return;}
+        // Continue a file-lookup conversation without a second RAG search.
+        if(!attached && Array.isArray(lastLookup) && lastLookup.length &&
+            isIndexedContentFollowUp(question)) {
+            var matches=lastLookup.filter(function(hit){
+                return hit && typeof hit.path==='string' && hit.path &&
+                    typeof hit.name==='string' && hit.name;
+            });
+            var distinct=[];
+            matches.forEach(function(hit){
+                if(!distinct.some(function(item){return item.path===hit.path;}))
+                    distinct.push(hit);
+            });
+            input.val('');
+            if(distinct.length===1) {
+                readIndexedSource(distinct[0],question);
+            } else if(distinct.length>1) {
+                if(messages.find('.aic-welcome').length)messages.empty();
+                addTurn('user',question);
+                var row=addTurn('assistant','找到多个候选文件，请选择你要读取的那一份。');
+                attachResult(row,{mode:'choose_read',lookup_results:distinct,
+                    read_instruction:question});
+                turns.push({role:'user',content:question});
+                turns.push({role:'assistant',content:'请从候选文件中选择要读取的文件'});
+                if(turns.length>16)turns=turns.slice(-16);
+                setStatus('请先选择具体文件；尚未读取任何正文');
+            }
+            return;
+        }
+        // A new unrelated query must not accidentally use stale document paths.
+        if(!isIndexedContentFollowUp(question))lastLookup=null;
         if(messages.find('.aic-welcome').length)messages.empty();
         var history=turns.slice(-6).map(function(x){
             return {role:x.role,content:x.content.slice(0,1800)};
@@ -463,6 +634,14 @@ kodReady.push(function () {
             window.clearTimeout(timer);
             pending=false;send.prop('disabled',false).text('发送');
             var row=addTurn('assistant',answer,sources);
+            if(extra && Array.isArray(extra.lookup_results) &&
+                (extra.mode==='file_lookup' || extra.mode==='edit_lookup' ||
+                 extra.mode==='ambiguous_file')) {
+                lastLookup=extra.lookup_results.filter(function(hit){
+                    return hit && typeof hit.path==='string' && !!hit.path &&
+                        typeof hit.name==='string' && !!hit.name;
+                }).slice(0,8);
+            }
             if(extra)attachResult(row,extra);
             if(audit.length){
                 var summary=$('<div class="aic-attachment-note"></div>')
@@ -752,6 +931,7 @@ kodReady.push(function () {
                 pickList.empty().text('读取文件失败，未关联');return;
             }
             attached={folder:folder,name:name};
+            lastLookup=null;
             picker.hide();
             updateFileLabel();
             reset('已关联：'+name+'。现在可以直接提问，例如“总结一下今年的费用”。');
@@ -767,6 +947,7 @@ kodReady.push(function () {
         if(pending){setStatus('请先等当前工具调用结束',true);return false;}
         if(typeof folder!=='string'||typeof name!=='string'||!name||name.length>255)return false;
         attached={folder:folder,name:name};
+        lastLookup=null;
         updateFileLabel();
         reset('已关联 KodBox 文件：'+name+'。可以直接提问，无需重新生成草稿。');
         if(typeof question==='string' && question.trim())input.val(question.trim().slice(0,1800));
@@ -805,7 +986,7 @@ kodReady.push(function () {
     chooseFile.on('click',showPicker);
     detach.on('click',function(){
         if(pending){setStatus('当前请求尚未完成，不能取消关联',true);return;}
-        attached=null;updateFileLabel();reset('已取消文件关联。');
+        attached=null;lastLookup=null;updateFileLabel();reset('已取消文件关联。');
     });
     searchTool.on('click',function(){
         layer.hide();
