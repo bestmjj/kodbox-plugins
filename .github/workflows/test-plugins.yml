@@ -30,6 +30,10 @@ jobs:
           find assetLedger aiRagLite -type f -name '*.js' -print0 | xargs -0 -n1 node --check
       - name: Live AssetLedger query adapter tests
         run: php aiRagLite/tests/test_asset_query.php
+      - name: Agent tool argument validation tests
+        run: php aiRagLite/tests/test_agent_tool_args.php
+      - name: Agent verified RAG-indexed file read
+        run: php aiRagLite/tests/test_indexed_agent_read.php
       - name: AI writer storage tests
         run: php aiRagLite/tests/test_writer.php
       - name: RAG-first file lookup ranking and deduplication
@@ -41,6 +45,8 @@ jobs:
           node aiRagLite/tests/test_assistant_ui.cjs
       - name: RAG writer Python syntax
         run: python3 -m py_compile integrations/rag-writer/service/rag/drafting.py integrations/rag-writer/service/rag/assistant_chat.py integrations/rag-writer/service/rag/agent_runtime.py
+      - name: Pinned deployment helper syntax
+        run: sh -n integrations/rag-writer/update_agent.sh
       - name: RAG AI assistant document revision tests
         run: |
           python3 -m pip install --quiet "python-docx>=1.1,<2" "fastapi>=0.110,<1" "pydantic>=2,<3" requests

@@ -7,7 +7,8 @@ import sys
 import types
 from pathlib import Path
 from types import SimpleNamespace
-from fastapi import FastAPI
+from fastapi import FastAPI, HTTPException
+import requests
 from docx import Document
 
 root=Path(__file__).resolve().parents[1]
@@ -23,6 +24,8 @@ sys.modules["rag.store"].open_db=lambda value:None
 spec=importlib.util.spec_from_file_location("rag.drafting",root/"service"/"rag"/"drafting.py")
 writer=importlib.util.module_from_spec(spec)
 spec.loader.exec_module(writer)
+
+original_model_chat=writer.chat
 
 doc=Document()
 doc.add_heading("已有 Word 文档",level=1)
@@ -59,4 +62,54 @@ parsed=routes["/v1/import-docx"].endpoint(writer.ImportDocxRequest(
     data_base64=base64.b64encode(data).decode()
 ))
 assert "# 已有 Word 文档" in parsed["content"]
-print("OK: DOCX import, invalid input, revision route and protected endpoints")
+# The generation endpoint must reveal a safe upstream HTTP status, without
+# leaking provider body, URL, or credentials.
+response=requests.Response()
+response.status_code=429
+writer.chat=lambda cfg,messages: (_ for _ in ()).throw(
+    requests.HTTPError("secret-upstream-body",response=response))
+try:
+    routes["/v1/draft"].endpoint(writer.DraftRequest(topic="运维交接手册"))
+except HTTPException as e:
+    assert e.status_code==502 and "429" in e.detail
+    assert "secret" not in e.detail
+else:
+    raise AssertionError("upstream rate limit should surface as a safe draft failure")
+writer.chat=original_model_chat
+# A transient upstream model HTTP 503 is retried at most once.
+retry_calls=[]
+class ModelReply:
+    def __init__(self,status):
+        self.status_code=status
+    def raise_for_status(self):
+        if self.status_code>=400:
+            exc=requests.HTTPError("simulated upstream error")
+            exc.response=self
+            raise exc
+    def json(self):
+        return {"choices":[{"message":{"content":"# 成功生成"}}]}
+def transient_post(url,**kwargs):
+    retry_calls.append(kwargs)
+    return ModelReply(503 if len(retry_calls)==1 else 200)
+writer.requests.post=transient_post
+writer.time.sleep=lambda seconds:None
+cfg_model=SimpleNamespace(llm_provider="openai-compatible",
+    openai_base_url="https://model.test/v1",openai_chat_model="test",
+    openai_api_key="test-key",llm_timeout=5)
+assert writer.chat(cfg_model,[{"role":"user","content":"测试"}])=="# 成功生成"
+assert len(retry_calls)==2,"temporary upstream HTTP status should retry once"
+assert retry_calls[0]["json"]==retry_calls[1]["json"],"retry must preserve request"
+
+# Auth failures must not be retried; a timeout may have consumed tokens.
+for failure in ("auth","timeout"):
+    retry_calls.clear()
+    def no_retry_post(url,**kwargs):
+        retry_calls.append(kwargs)
+        if failure=="timeout":raise requests.Timeout("simulated")
+        return ModelReply(401)
+    writer.requests.post=no_retry_post
+    try:writer.chat(cfg_model,[{"role":"user","content":"测试"}])
+    except requests.RequestException:pass
+    else:raise AssertionError("non-transient provider failure was suppressed")
+    assert len(retry_calls)==1,"unauthorized/timeout must not trigger duplicate calls"
+print("OK: DOCX import, revision route, safe draft HTTP diagnostics, bounded retry and auth")

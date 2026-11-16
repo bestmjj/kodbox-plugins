@@ -45,6 +45,11 @@ kodReady.push(function () {
       '.aic-file-path{font-size:12px;color:#64748b}',
       '.aic-file-snippet{font-size:12px;white-space:pre-wrap;line-height:1.5;color:#475569}',
       '.aic-facts strong{font-size:13px}',
+      '.aic-document-preview{box-sizing:border-box;width:min(1100px,96%);max-width:96%;max-height:510px;overflow:auto;background:#fff;border:1px solid #dbe3ed;border-radius:8px;padding:17px 20px;line-height:1.8;overflow-wrap:anywhere;color:#243145}',
+      '.aic-document-preview h1{font-size:21px;margin:14px 0 10px}.aic-document-preview h2{font-size:18px;margin:16px 0 9px}.aic-document-preview h3,.aic-document-preview h4{font-size:15px;margin:14px 0 7px}',
+      '.aic-document-preview p{margin:0 0 12px}.aic-document-preview ul,.aic-document-preview ol{padding-left:24px;margin:8px 0 14px}.aic-document-preview li{margin:4px 0}',
+      '.aic-document-preview .airaglite-table-wrap{max-width:100%;overflow-x:auto;margin:12px 0}.aic-document-preview table{border-collapse:collapse;min-width:350px;width:100%}.aic-document-preview th,.aic-document-preview td{border:1px solid #d3dce8;padding:7px 10px;text-align:left;vertical-align:top}',
+      '.aic-document-preview pre{white-space:pre-wrap;word-break:break-word;overflow:auto;background:#f1f5f9;border-radius:6px;padding:12px}.aic-document-preview code{background:#f1f5f9;padding:1px 4px}.aic-document-preview blockquote{border-left:3px solid #bed4ee;padding-left:12px;margin:10px 0;color:#475569}',
       '.aic-attachment-note{color:#64748b;font-size:12px;margin-top:6px}',
       '.aic-footer{display:flex;flex-direction:column;gap:7px;padding:13px 20px 16px;border-top:1px solid #e2e8f0;background:#fff;flex:0 0 auto}',
       '.aic-compose{display:flex;align-items:flex-end;gap:10px}',
@@ -142,6 +147,9 @@ kodReady.push(function () {
     var browseId=0;
     var browsing='';
     var lastTopic='';
+    // Retain only indexed candidate identities in the current in-page conversation.
+    // An index result is not permission to read. agentTool revalidates each read.
+    var lastLookup=null;
 
     function setStatus(message,error) {
         status.text(String(message||'')).css('color',error?'#b91c1c':'#64748b');
@@ -179,7 +187,7 @@ kodReady.push(function () {
     }
     function reset(message) {
         if (pending) {setStatus('当前请求还没有完成',true);return false;}
-        turns=[];requestId++;lastTopic='';
+        turns=[];requestId++;lastTopic='';lastLookup=null;
         welcome();setStatus(message||'新对话已开始。历史消息只保存在当前网页。');
         return true;
     }
@@ -313,6 +321,11 @@ kodReady.push(function () {
         });
     }
 
+    function wantsExistingDocumentEdit(question) {
+        var q=String(question||'').trim();
+        return /(?:编辑|修改|改写|润色|重写|调整|精简|补充)/.test(q) &&
+            /(?:文档|文件|文章|笔记|流程|教程|手册|报告|方案|这篇|这个文件|\.(?:md|txt|docx)\b)/i.test(q);
+    }
     // Short file-title lookups should reuse the existing RAG index directly.
     // This is a deterministic, safe retrieval shortcut; other requests still
     // go through the model-selected KodBox Agent tools.
@@ -321,6 +334,7 @@ kodReady.push(function () {
         var q=String(question||'').trim();
         if (q.length<2 || q.length>90) return false;
         if (/资产|台账|订阅费用|账单统计|费用汇总/.test(q)) return false;
+        if (wantsExistingDocumentEdit(q)) return false;
         if (/列出.*(?:文件夹|目录)|(?:文件夹|目录).*(?:有哪些|列出|子目录)|新建|创建|生成|帮我写|修改|润色|删除|移动|重命名|覆盖|帮我总结|分析|计算|统计/.test(q))
             return false;
         var fileHint=/文件|文档|文章|资料|笔记|流程|教程|手册|报告|方案|脚本|配置|\.md\b|\.txt\b|\.docx\b/i;
@@ -328,6 +342,139 @@ kodReady.push(function () {
             return fileHint.test(q) || q.length<=45;
         return q.length<=24 && fileHint.test(q) &&
             !/[?？]$/.test(q);
+    }
+
+    function isIndexedContentFollowUp(question) {
+        var q=String(question||'').trim();
+        if(q.length<2 || q.length>180)return false;
+        var reference=/(?:里面|其中|这篇|这份|这个文件|该文件|该文档|上面(?:那个|那篇)?|刚才(?:找|查|提到)?|它(?:的)?|全文|原文|文件内容|文档内容|内容)/.test(q);
+        var intent=/(?:看|查看|读|阅读|展示|显示|输出|打印|贴出|复制|概括|总结|分析|解释|介绍|具体|细节|步骤|写了什么|有哪些|是什么|全文|原文|内容)/.test(q);
+        return reference && intent;
+    }
+    function wantsVerbatimIndexedContent(question) {
+        var q=String(question||'').trim();
+        return /(?:看|查看|读|阅读|展示|显示|输出|打印|贴出|复制|全文|原文|内容)/.test(q) &&
+            !/(?:总结|概括|分析|解释|归纳|提炼|改写|修改|编辑|对比|比较|有哪些|为什么|如何|怎么做|作用|建议)/.test(q);
+    }
+    function displayReadError(reason) {
+        setStatus('文件读取失败：'+String(reason||'未知错误').slice(0,240),true);
+    }
+    // Read the *exact* indexed file through the existing authorized KodBox
+    // tool. Never treat an RAG snippet as the full document and never guess a
+    // personal-space folder from the WebDAV index path.
+    function readIndexedSource(hit,request) {
+        if(pending){setStatus('当前请求尚未完成',true);return;}
+        var path=hit && typeof hit.path==='string'?hit.path:'';
+        var name=hit && typeof hit.name==='string' && hit.name?
+            hit.name:String(path.split('/').pop());
+        if(!path || path.length>4800 || !name || name.length>255) {
+            displayReadError('索引文件信息不完整');return;
+        }
+        if(!/\.(?:md|markdown|txt|docx)$/i.test(name)){
+            displayReadError('目前只能读取 Markdown、TXT 和 Word 正文。其他文件请打开原件。');
+            return;
+        }
+        var q=String(request||'查看文件内容').trim().slice(0,1800);
+        if(q.length<2)q='查看文件内容';
+        if(messages.find('.aic-welcome').length)messages.empty();
+        var priorHistory=turns.slice(-6).map(function(t){
+            return {role:t.role,content:t.content.slice(0,1800)};
+        });
+        var raw=wantsVerbatimIndexedContent(q);
+        addTurn('user',q);
+        pending=true;send.prop('disabled',true).text('处理中…');
+        setStatus('正在按 KodBox 当前用户权限读取《'+name+'》……');
+        var id=++requestId;
+        var timer=window.setTimeout(function(){
+            if(id!==requestId)return;
+            requestId++;pending=false;send.prop('disabled',false).text('发送');
+            addTurn('assistant','文件读取或分析超时；没有修改原文件。');
+            displayReadError('执行超时');
+        },210000);
+        function failRead(reason) {
+            if(id!==requestId)return;
+            window.clearTimeout(timer);
+            pending=false;send.prop('disabled',false).text('发送');
+            addTurn('assistant','无法读取或分析《'+name+'》：'+String(reason));
+            displayReadError(reason);
+        }
+        function doneRead(answer,body,truncated) {
+            if(id!==requestId)return;
+            window.clearTimeout(timer);
+            pending=false;send.prop('disabled',false).text('发送');
+            var row=addTurn('assistant',answer,[{id:1,path:path,location:''}]);
+            if(typeof body==='string') {
+                // Read-only Markdown preview. The shared renderer constructs
+                // DOM nodes using textContent; untrusted document HTML is
+                // never inserted as executable markup.
+                var contentView=$('<div class="aic-document-preview"></div>').appendTo(row);
+                if(/\.(?:md|markdown)$/i.test(name) &&
+                    typeof window.aiRagLiteRenderMarkdown==='function') {
+                    contentView.addClass('aic-markdown-preview');
+                    window.aiRagLiteRenderMarkdown(contentView[0],body);
+                }else{
+                    $('<pre class="aic-raw-document"></pre>').text(body)
+                        .appendTo(contentView);
+                }
+                if(truncated){
+                    $('<div class="aic-attachment-note"></div>').text(
+                        '这里只显示文件的前 5500 个字符；请打开原文件查看剩余内容。'
+                    ).appendTo(row);
+                }
+            }
+            $('<button type="button" class="aic-action"></button>')
+                .text('打开 KodBox 原文件').appendTo(row)
+                .on('click',function(){openSource(hit);});
+            lastLookup=[{path:path,name:name}];
+            turns.push({role:'user',content:q});
+            turns.push({role:'assistant',content:String(answer).slice(0,1800)});
+            if(turns.length>16)turns=turns.slice(-16);
+            setStatus('已按当前账号权限读取《'+name+'》；原文件没有改变');
+            scrollBottom();
+        }
+        var args={folder:'',name:name,indexed_path:path};
+        apiRequest('agentTool',{tool:'read_document',arguments_json:JSON.stringify(args)},
+            function(data) {
+                if(id!==requestId)return;
+                if(!data || typeof data.content!=='string') {
+                    failRead('KodBox 没有返回可用的文件正文');return;
+                }
+                if(raw){
+                    doneRead('以下是《'+name+'》的'+
+                        (data.truncated?'部分正文：':'正文：'),
+                        data.content,!!data.truncated);
+                    return;
+                }
+                // Only explicit analysis requests send the verified excerpt to
+                // the model. Raw reading stays inside KodBox/PHP.
+                var now=new Date();
+                var today=now.getFullYear()+'-'+
+                    String(now.getMonth()+1).padStart(2,'0')+'-'+
+                    String(now.getDate()).padStart(2,'0');
+                var observation={tool:'read_document',arguments:args,
+                    result:JSON.stringify(data).slice(0,6200)};
+                setStatus('已验证文件，AI 正在依据正文回答……');
+                apiRequest('agentStep',{
+                    message:q,history_json:JSON.stringify(priorHistory),
+                    observations_json:JSON.stringify([observation]),
+                    file_folder:'',file_name:'',force_final:'1',client_today:today
+                },function(response) {
+                    if(id!==requestId)return;
+                    var result=response;
+                    for(var n=0;n<3;n++){
+                        if(typeof result==='string'){
+                            try{result=JSON.parse(result);}catch(e){break;}
+                        }else if(result && typeof result==='object' && !result.kind &&
+                            result.data && typeof result.data==='object')result=result.data;
+                        else break;
+                    }
+                    if(!result || typeof result.answer!=='string' ||
+                        (result.kind && result.kind!=='final')){
+                        failRead('模型没有返回有效的正文分析结果');return;
+                    }
+                    doneRead(result.answer,null,!!data.truncated);
+                },function(err){failRead('模型分析失败：'+String(err));});
+            },function(err){failRead(err);});
     }
 
     function attachResult(row,data) {
@@ -351,8 +498,22 @@ kodReady.push(function () {
                     $('<span class="aic-file-snippet"></span>').text(String(hit.snippet).slice(0,300)).appendTo(btn);
                 btn.attr('title','通过当前 KodBox 登录会话验证权限后打开原文件');
                 btn.on('click',function(){openSource(hit);});
+                if(/\.(?:md|markdown|txt|docx)$/i.test(String(hit.name||hit.path.split('/').pop()))) {
+                    $('<button type="button" class="aic-action aic-read-indexed"></button>')
+                        .text('读取正文').appendTo(candidates)
+                        .on('click',function(){
+                            readIndexedSource(hit,typeof data.read_instruction==='string' &&
+                                data.read_instruction ? data.read_instruction :
+                                '查看《'+String(hit.name||hit.path.split('/').pop())+'》的内容');
+                        });
+                }
+
             });
             $('<div class="aic-attachment-note"></div>').text(
+                data.read_instruction ?
+                '找到多个候选文件，请先选择要读取的原文件。读取仍会验证 KodBox 当前用户权限。' :
+                data.edit_instruction ?
+                '如需修改，请点击文件名在 KodBox 中打开原文件，再使用 KodBox 自带编辑功能。' :
                 '以上是 RAG 索引中的候选文件。点击后才会核验权限并打开原件；找不到不等于文件不存在。'
             ).appendTo(row);
         }
@@ -381,16 +542,52 @@ kodReady.push(function () {
         var question=String(input.val()||'').trim();
         if(question.length<2){setStatus('请至少输入两个字符',true);return;}
         if(question.length>1800){setStatus('输入内容过长',true);return;}
+        // Continue a file-lookup conversation without a second RAG search.
+        if(!attached && Array.isArray(lastLookup) && lastLookup.length &&
+            isIndexedContentFollowUp(question)) {
+            var matches=lastLookup.filter(function(hit){
+                return hit && typeof hit.path==='string' && hit.path &&
+                    typeof hit.name==='string' && hit.name;
+            });
+            var distinct=[];
+            matches.forEach(function(hit){
+                if(!distinct.some(function(item){return item.path===hit.path;}))
+                    distinct.push(hit);
+            });
+            input.val('');
+            if(distinct.length===1) {
+                readIndexedSource(distinct[0],question);
+            } else if(distinct.length>1) {
+                if(messages.find('.aic-welcome').length)messages.empty();
+                addTurn('user',question);
+                var row=addTurn('assistant','找到多个候选文件，请选择你要读取的那一份。');
+                attachResult(row,{mode:'choose_read',lookup_results:distinct,
+                    read_instruction:question});
+                turns.push({role:'user',content:question});
+                turns.push({role:'assistant',content:'请从候选文件中选择要读取的文件'});
+                if(turns.length>16)turns=turns.slice(-16);
+                setStatus('请先选择具体文件；尚未读取任何正文');
+            }
+            return;
+        }
+        // A new unrelated query must not accidentally use stale document paths.
+        if(!isIndexedContentFollowUp(question))lastLookup=null;
         if(messages.find('.aic-welcome').length)messages.empty();
         var history=turns.slice(-6).map(function(x){
             return {role:x.role,content:x.content.slice(0,1800)};
         });
+        // Use the calendar date shown by the user's browser, not an LLM guess.
+        // The RAG API only accepts dates within one day of server UTC.
+        var now=new Date();
+        var clientToday=now.getFullYear()+'-'+
+            String(now.getMonth()+1).padStart(2,'0')+'-'+
+            String(now.getDate()).padStart(2,'0');
         addTurn('user',question);
         input.val('');
         pending=true;send.prop('disabled',true).text('处理中…');
         setStatus('AI 正在选择需要执行的文件工具……');
         var id=++requestId;
-        var observations=[],audit=[],facts=null,sources=[];
+        var observations=[],audit=[],facts=null,sources=[],indexedCandidates=[];
         var timer=window.setTimeout(function(){
             if(id!==requestId)return;
             requestId++;pending=false;send.prop('disabled',false).text('发送');
@@ -407,6 +604,14 @@ kodReady.push(function () {
             window.clearTimeout(timer);
             pending=false;send.prop('disabled',false).text('发送');
             var row=addTurn('assistant',answer,sources);
+            if(extra && Array.isArray(extra.lookup_results) &&
+                (extra.mode==='file_lookup' || extra.mode==='edit_lookup' ||
+                 extra.mode==='ambiguous_file')) {
+                lastLookup=extra.lookup_results.filter(function(hit){
+                    return hit && typeof hit.path==='string' && !!hit.path &&
+                        typeof hit.name==='string' && !!hit.name;
+                }).slice(0,8);
+            }
             if(extra)attachResult(row,extra);
             if(audit.length){
                 var summary=$('<div class="aic-attachment-note"></div>')
@@ -420,7 +625,8 @@ kodReady.push(function () {
             }
             setStatus(extra&&extra.mode==='asset_live'?
                 '资产查询只在本地执行，没有发送到语言模型':
-                '已完成本轮工具调用；原文件没有改变');
+                (audit.length?'已完成本轮工具调用；原文件没有改变':
+                'AI 已回答；本轮未执行任何文件操作'));
             scrollBottom();
         }
         function fail(err) {
@@ -430,6 +636,25 @@ kodReady.push(function () {
             addTurn('assistant','操作未完成：'+String(err));
             setStatus('Agent 调用失败：'+String(err),true);
         }
+        // Be tolerant of a single older API envelope while keeping tool execution strict.
+        // A missing tool call is a valid final answer, not proof of unsupported function calling.
+        function normalizeAgentStep(value) {
+            var result=value;
+            for(var n=0;n<3;n++) {
+                if(typeof result==='string') {
+                    try {result=JSON.parse(result);} catch(e) {break;}
+                    continue;
+                }
+                if(result && typeof result==='object' && !Array.isArray(result) &&
+                    !result.kind && result.data && typeof result.data==='object' &&
+                    !Array.isArray(result.data)) {
+                    result=result.data;
+                    continue;
+                }
+                break;
+            }
+            return result;
+        }
         function next(forceFinal) {
             if(id!==requestId)return;
             apiRequest('agentStep',{
@@ -438,22 +663,118 @@ kodReady.push(function () {
                 observations_json:JSON.stringify(observations),
                 file_folder:attached?attached.folder:'',
                 file_name:attached?attached.name:'',
-                force_final:forceFinal?'1':'0'
+                force_final:forceFinal?'1':'0',
+                client_today:clientToday
             },function(data){
                 if(id!==requestId)return;
-                if(data.kind==='final') {
-                    finish(String(data.answer||'没有得到有效回答。'),{
-                        mode:data.mode||'agent',sources:sources,
+                var step=normalizeAgentStep(data);
+                if(step && typeof step==='object' &&
+                    (step.kind==='final' || (!step.kind && typeof step.answer==='string'))) {
+                    finish(String(step.answer||'没有得到有效回答。'),{
+                        mode:step.mode||'agent',sources:sources,
                         expense_summary:facts
                     });
                     return;
                 }
-                if(data.kind!=='tool' || !toolLabels[data.tool] ||
-                    !data.arguments || typeof data.arguments!=='object') {
-                    fail('模型没有返回有效工具调用，请检查当前模型是否支持 function calling');
+                if(!step || step.kind!=='tool' || !toolLabels[step.tool] ||
+                    !step.arguments || typeof step.arguments!=='object' ||
+                    Array.isArray(step.arguments)) {
+                    var keys=step && typeof step==='object' && !Array.isArray(step)?
+                        Object.keys(step).slice(0,8).join(', '):typeof step;
+                    var kind=step && typeof step==='object'?String(step.kind||'缺失'):'缺失';
+                    fail('Agent 返回格式不匹配（kind='+kind+'；字段：'+keys+
+                        '）。请检查 KodBox 插件与 RAG API 的响应结构。');
                     return;
                 }
-                var tool=data.tool,args=data.arguments;
+                var tool=step.tool,args=step.arguments;
+                if(tool==='list_folder' && !attached && typeof args.folder==='string' &&
+                    args.folder!=='') {
+                    // A model suggestion is not proof that a directory exists.
+                    // Discover it from the real authorized folder listing first.
+                    var verifiedFolders=[];
+                    observations.filter(function(obs){return obs.tool==='list_folder';})
+                        .forEach(function(obs){
+                            try {
+                                var out=JSON.parse(obs.result);
+                                if(out && Array.isArray(out.folders)) {
+                                    out.folders.forEach(function(folder){
+                                        if(folder && typeof folder.folder==='string')
+                                            verifiedFolders.push(folder.folder);
+                                    });
+                                }
+                            } catch(e) {}
+                        });
+                    if(verifiedFolders.indexOf(args.folder)===-1) {
+                        var hadRoot=observations.some(function(obs){
+                            return obs.tool==='list_folder' &&
+                                obs.arguments && obs.arguments.folder==='';
+                        });
+                        if(!hadRoot) {
+                            args={folder:''};
+                        } else {
+                            var choices=verifiedFolders.slice(0,12).join('、');
+                            finish('我查看了 KodBox 已列出的目录，未找到“'+
+                                String(args.folder).slice(0,100)+
+                                '”。'+(choices?'目前找到：'+choices+'。':'')+
+                                '请确认目录名称，或用“关联文件”浏览实际目录。');
+                            return;
+                        }
+                    }
+                }
+                if(tool==='prepare_edit') {
+                    // A model-proposed path alone cannot identify the user's
+                    // intended editing target. Require explicit, verified link.
+                    if(!attached) {
+                        finish('要修改已有文章，请先关联具体文件。你可以点上方“关联文件”，或先让我查找文章。');
+                        return;
+                    }
+                    if(args.folder!==attached.folder || args.name!==attached.name) {
+                        fail('AI 选择的编辑文件与当前关联文件不一致，已停止修改准备。');
+                        return;
+                    }
+                }
+                // Accept only the bounded query for read-only RAG tools.
+                // Models sometimes include unsupported optional fields.
+                if(tool==='find_files' || tool==='search_knowledge') {
+                    var q=typeof args.query==='string'?args.query:
+                        (typeof args.q==='string'?args.q:question);
+                    args={query:q.trim()};
+                    if(!args.query) {fail('模型没有提供有效的检索关键词');return;}
+                }
+                // File discovery returns WebDAV index paths, never home-relative
+                // KodBox folders. Pin a subsequent read to the *exact* indexed
+                // candidate; PHP still resolves the path and verifies session rights.
+                if((tool==='read_document' || tool==='calculate_expenses') &&
+                    typeof args.name==='string') {
+                    var candidates=indexedCandidates.filter(function(hit) {
+                        if(!hit || typeof hit.path!=='string')return false;
+                        var hitName=String(hit.name||hit.path.split('/').pop());
+                        return hitName===args.name;
+                    });
+                    var uniquePaths=Array.from(new Set(candidates.map(function(hit){return hit.path;})));
+                    var preferredFolder=String(args.folder||'');
+                    if(uniquePaths.length>1 && preferredFolder) {
+                        var exact=uniquePaths.filter(function(path) {
+                            return path===preferredFolder+'/'+args.name;
+                        });
+                        if(exact.length===1)uniquePaths=exact;
+                    }
+                    if(uniquePaths.length===1) {
+                        args={folder:preferredFolder,name:args.name,indexed_path:uniquePaths[0]};
+                    }else if(uniquePaths.length>1) {
+                        finish('索引找到多个同名文件，无法确认应读取哪一个。请从下方候选文件中选择并打开。',
+                            {mode:'ambiguous_file',sources:sources,lookup_results:candidates});
+                        return;
+                    }
+                }
+                var repeated=observations.some(function(obs) {
+                    return obs.tool===tool &&
+                        JSON.stringify(obs.arguments)===JSON.stringify(args);
+                });
+                if(repeated) {
+                    fail('工具重复请求了相同参数，已停止，避免循环调用。');
+                    return;
+                }
                 var display=toolLabels[tool];
                 if(args.name)display+='：'+String(args.name).slice(0,60);
                 else if(args.folder)display+='：'+String(args.folder).slice(0,60);
@@ -477,11 +798,35 @@ kodReady.push(function () {
                     }
                     if(tool==='calculate_expenses' && result.summary)facts=result.summary;
                     if((tool==='search_knowledge' || tool==='find_files') && Array.isArray(result.results)){
+                        if(tool==='find_files')indexedCandidates=result.results.slice(0,8);
                         result.results.slice(0,8).forEach(function(ref,i){
                             if(ref&&ref.path)sources.push({
                                 id:i+1,path:ref.path,location:ref.location||''
                             });
                         });
+                    }
+                    // An edit request with no selected document needs a real
+                    // verified target before prepare_edit can be executed.
+                    // Do not let model guesses become writable file paths.
+                    if(tool==='find_files' && !attached && wantsExistingDocumentEdit(question)) {
+                        var editHits=Array.isArray(result.results)?result.results:[];
+                        finish(editHits.length ?
+                            '找到 '+editHits.length+' 个候选文件。请点击文件名，在 KodBox 原文件中编辑。' :
+                            'RAG 索引未找到对应文章，请在 KodBox 文件管理中搜索并打开原文件。',
+                            {mode:'edit_lookup',sources:sources,lookup_results:editHits,
+                             edit_instruction:question});
+                        return;
+                    }
+                    // A short lookup request needs the actual candidate files,
+                    // not another expensive model turn that may repeat find_files.
+                    if(tool==='find_files' && !attached && question.length<=45 &&
+                        !/总结|分析|比较|对比|计算|统计|写|修改|编辑|改写|润色|重写|调整|精简|补充|整理/.test(question)) {
+                        var hits=Array.isArray(result.results)?result.results:[];
+                        finish(hits.length?
+                            '在 RAG 索引中找到 '+hits.length+' 个候选文件，点击文件可验证权限后打开。':
+                            'RAG 索引没有找到与“'+question+'”匹配的文件。请尝试“高级搜索”；这不代表 KodBox 中没有相关资料。',
+                            {mode:'file_lookup',sources:sources,lookup_results:hits});
+                        return;
                     }
                     observations.push({
                         tool:tool,arguments:args,
@@ -491,13 +836,10 @@ kodReady.push(function () {
                 },function(err){
                     if(id!==requestId)return;
                     trace.text('× '+display+' · '+err);
-                    // A failed tool is still an observation. The model can
-                    // choose another safe tool, instead of silent failure.
-                    observations.push({
-                        tool:tool,arguments:args,
-                        result:'工具执行失败：'+String(err).slice(0,400)
-                    });
-                    next(observations.length>=4);
+                    // A failed tool is not evidence that a file is missing.
+                    // Do not send the same invalid call around four times or
+                    // let the model fabricate a "not found" answer.
+                    fail(display+'失败：'+String(err).slice(0,400));
                 });
             },fail);
         }
@@ -559,6 +901,7 @@ kodReady.push(function () {
                 pickList.empty().text('读取文件失败，未关联');return;
             }
             attached={folder:folder,name:name};
+            lastLookup=null;
             picker.hide();
             updateFileLabel();
             reset('已关联：'+name+'。现在可以直接提问，例如“总结一下今年的费用”。');
@@ -574,6 +917,7 @@ kodReady.push(function () {
         if(pending){setStatus('请先等当前工具调用结束',true);return false;}
         if(typeof folder!=='string'||typeof name!=='string'||!name||name.length>255)return false;
         attached={folder:folder,name:name};
+        lastLookup=null;
         updateFileLabel();
         reset('已关联 KodBox 文件：'+name+'。可以直接提问，无需重新生成草稿。');
         if(typeof question==='string' && question.trim())input.val(question.trim().slice(0,1800));
@@ -612,7 +956,7 @@ kodReady.push(function () {
     chooseFile.on('click',showPicker);
     detach.on('click',function(){
         if(pending){setStatus('当前请求尚未完成，不能取消关联',true);return;}
-        attached=null;updateFileLabel();reset('已取消文件关联。');
+        attached=null;lastLookup=null;updateFileLabel();reset('已取消文件关联。');
     });
     searchTool.on('click',function(){
         layer.hide();

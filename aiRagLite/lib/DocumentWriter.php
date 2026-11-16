@@ -233,8 +233,35 @@ class AiRagLiteDocumentWriter {
             throw new RuntimeException('Word 正文提取失败，请检查 RAG 后端');
         return $data['content'];
     }
+    /**
+     * Read a file that the KodBox DAV resolver has already located and
+     * authorized under the current user's session. This is strictly read-only;
+     * it never turns a virtual RAG index path into a writable home folder.
+     */
+    public static function readVerifiedDocument($resolved,$base,$key) {
+        if (!is_array($resolved) || !isset($resolved['path'],$resolved['name']) ||
+            !is_string($resolved['path']) || !is_string($resolved['name']))
+            throw new RuntimeException('文件定位结果无效');
+        $name=$resolved['name'];
+        if (!self::supportedExtension($name))
+            throw new RuntimeException('该索引文件格式暂不支持全文读取');
+        if (!Action('explorer.auth')->fileCan($resolved['path'],'view'))
+            throw new RuntimeException('当前用户无权读取索引文件');
+        $info=IO::infoFull($resolved['path']);
+        if (!is_array($info) || ($info['type'] ?? '')!=='file' ||
+            (isset($info['isDelete']) && $info['isDelete']=='1'))
+            throw new RuntimeException('索引指向的文件已移动或不存在');
+        $item=array('path'=>$resolved['path'],
+            'size'=>isset($info['size'])?intval($info['size']):null);
+        return self::readItem($item,'',$name,$base,$key);
+    }
+
     public static function readDocument($relative,$name,$base,$key) {
         $item=self::findDocument($relative,$name,'view');
+        return self::readItem($item,$relative,$name,$base,$key);
+    }
+
+    private static function readItem($item,$relative,$name,$base,$key) {
         $bytes=self::readBytes($item);
         $format=strtolower(pathinfo($name,PATHINFO_EXTENSION));
         if ($format==='docx') {

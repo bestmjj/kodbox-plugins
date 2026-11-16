@@ -97,6 +97,18 @@ class aiRagLitePlugin extends PluginBase {
         $err = curl_error($ch);
         curl_close($ch);
         if ($response === false || $status !== 200) {
+            // The RAG draft endpoint reports a sanitized provider HTTP status.
+            // Relay only a strictly validated status number; never show an
+            // upstream response body, model endpoint, token, or prompt.
+            if (in_array($route,array('draft','revise'),true) && $status===502 &&
+                is_string($response)) {
+                $detail=json_decode($response,true);
+                $reason=is_array($detail) ? strval($detail['detail'] ?? '') : '';
+                if (preg_match('/^文档生成模型上游接口返回 HTTP ([1-5][0-9]{2})$/u',$reason,$m)) {
+                    show_json('文档生成失败：上游模型 HTTP '.$m[1].
+                        '（RAG HTTP 502）。如为临时故障可稍后重试。',false);
+                }
+            }
             show_json('RAG 服务不可用 (HTTP '.intval($status).'): '.($err ? $err : '检查服务日志'), false);
         }
         $data = json_decode($response, true);
@@ -361,9 +373,14 @@ class aiRagLitePlugin extends PluginBase {
             }
         }
         $force=strval(Input::get('force_final'))==='1';
+        $today=Input::get('client_today');
+        // Date-only browser context, never a user-controlled system prompt.
+        // The RAG API also rejects clocks that differ substantially from UTC.
+        $clientToday=is_string($today) && preg_match('/^[0-9]{4}-[0-9]{2}-[0-9]{2}$/D',$today) ?
+            $today:null;
         $this->requestBackend('agent-step',array(
             'message'=>$message,'history'=>$cleanHistory,'observations'=>$cleanObs,
-            'current_file'=>$current,'force_final'=>$force
+            'current_file'=>$current,'force_final'=>$force,'client_today'=>$clientToday
         ));
     }
 
@@ -371,6 +388,35 @@ class aiRagLitePlugin extends PluginBase {
      * The model never gets direct write permissions. All tools are authorized
      * under the current KodBox admin session, with strict tool-name allowlist.
      */
+    /**
+     * RAG/WebDAV index paths (e.g. 与我协作/用户[admin]/我的文档/...)
+     * are NOT personal-home relative folders. Resolve them through the
+     * existing KodBox session-permission-controlled DAV resolver.
+     * An exact filename match is required; never guess a different file.
+     */
+    private function agentReadDocument($folder,$name,$args,$base,$key) {
+        $indexed=trim(strval($args['indexed_path'] ?? ''));
+        if ($indexed==='' && (strpos($folder,'与我协作/')===0 ||
+            strpos($folder,'我所在的部门/')===0)) {
+            $indexed=rtrim($folder,'/').'/'.$name;
+        }
+        if ($indexed==='') {
+            return AiRagLiteDocumentWriter::readDocument($folder,$name,$base,$key);
+        }
+        $parts=$this->davParts($indexed);
+        if ($parts===false || count($parts)<2 || end($parts)!==$name)
+            throw new RuntimeException('索引路径与所请求的文件名不一致');
+        $this->lastResolveError='';
+        $resolved=$this->resolveDavFile($parts);
+        if (!$resolved) {
+            $detail=$this->lastResolveError ? '：'.$this->lastResolveError : '';
+            throw new RuntimeException('无法按当前 KodBox 账号权限定位索引原文件'.$detail);
+        }
+        if ($resolved['name']!==$name)
+            throw new RuntimeException('已验证文件与请求文件名不一致');
+        return AiRagLiteDocumentWriter::readVerifiedDocument($resolved,$base,$key);
+    }
+
     public function agentTool() {
         KodUser::checkRoot();
         if (($_SERVER['REQUEST_METHOD'] ?? '')!=='POST') show_json('POST only',false);
@@ -378,10 +424,33 @@ class aiRagLitePlugin extends PluginBase {
         $raw=Input::get('arguments_json');
         if (!is_string($raw) || strlen($raw)>3500) show_json('工具参数长度无效',false);
         $args=json_decode($raw,true);
-        $allowed=array('list_folder','read_document','search_knowledge','find_files',
-            'calculate_expenses','prepare_edit','prepare_new_document');
-        if (!in_array($tool,$allowed,true) || !is_array($args) || count($args)>3)
-            show_json('不支持的工具或参数',false);
+        // Some KodBox request serializers return a JSON-encoded JSON string.
+        // Unwrap at most once; never evaluate or execute model-provided content.
+        if (is_string($args)) $args=json_decode($args,true);
+        $toolFields=array(
+            'list_folder'=>array('folder'),
+            'read_document'=>array('folder','name','indexed_path'),
+            'find_files'=>array('query'),
+            'search_knowledge'=>array('query'),
+            'calculate_expenses'=>array('folder','name','indexed_path'),
+            'prepare_edit'=>array('folder','name','instructions'),
+            'prepare_new_document'=>array('title','instructions'),
+        );
+        if (!isset($toolFields[$tool])) show_json('不支持的 Agent 工具',false);
+        if (!is_array($args) || count($args)>12)
+            show_json('Agent 工具参数不是有效 JSON 对象',false);
+        // Read-only searches may include model-generated optional parameters
+        // such as limit/path. Ignore them; only the query may reach the index.
+        if ($tool==='find_files' || $tool==='search_knowledge') {
+            $query=$args['query'] ?? ($args['q'] ?? null);
+            if (!is_string($query)) show_json('检索工具缺少有效 query 字符串',false);
+            $args=array('query'=>$query);
+        } else {
+            foreach ($args as $key=>$value) {
+                if (!is_string($key) || !in_array($key,$toolFields[$tool],true))
+                    show_json('工具 '.$tool.' 包含不支持的参数字段',false);
+            }
+        }
         foreach ($args as $key=>$value) {
             if (!is_string($key) || !is_string($value) || strlen($value)>2048)
                 show_json('工具参数必须为限定长度的字符串',false);
@@ -400,7 +469,7 @@ class aiRagLitePlugin extends PluginBase {
                     break;
                 case 'read_document':
                     if (!$name) throw new RuntimeException('缺少具体文件名');
-                    $doc=AiRagLiteDocumentWriter::readDocument($folder,$name,$base,$key);
+                    $doc=$this->agentReadDocument($folder,$name,$args,$base,$key);
                     $original=$doc['content'];
                     $length=function_exists('mb_strlen')?mb_strlen($original,'UTF-8'):strlen($original);
                     $truncated=$length>5500;
@@ -438,7 +507,7 @@ class aiRagLitePlugin extends PluginBase {
                     break;
                 case 'calculate_expenses':
                     if (!$name) throw new RuntimeException('缺少费用文件名');
-                    $doc=AiRagLiteDocumentWriter::readDocument($folder,$name,$base,$key);
+                    $doc=$this->agentReadDocument($folder,$name,$args,$base,$key);
                     $summary=$this->backendData('agent-expenses',array(
                         'content'=>$doc['content'],'question'=>'统计费用总计'));
                     $out=array('folder'=>$folder,'name'=>$name,

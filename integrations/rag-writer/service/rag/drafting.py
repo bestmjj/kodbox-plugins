@@ -3,6 +3,7 @@ import base64
 import io
 import logging
 import re
+import time
 import zipfile
 from typing import Literal
 from collections import OrderedDict
@@ -62,25 +63,44 @@ def collect(cfg,topic,retrieve):
         blocks.append(item);budget-=len(item)+2
     return blocks,note,sources
 
+# Retry at most once for an explicit transient upstream HTTP error. Do not
+# retry request timeouts (the provider may already have generated the result),
+# auth failures, unsupported models, or malformed requests.
+_RETRYABLE_MODEL_HTTP={429,502,503,504}
+
+def _model_post(url,body,timeout,headers=None):
+    for attempt in range(2):
+        response=requests.post(url,json=body,headers=headers,timeout=timeout,
+            allow_redirects=False)
+        try:
+            response.raise_for_status()
+            return response
+        except requests.HTTPError:
+            if attempt or response.status_code not in _RETRYABLE_MODEL_HTTP:
+                raise
+            log.warning('Temporary draft/revision model HTTP status=%s, retry once',
+                response.status_code)
+            time.sleep(0.6)
+    raise RuntimeError('Unreachable model retry state')
+
 def chat(cfg,messages):
     if cfg.llm_provider=='openai-compatible':
         base=_validate_endpoint(cfg.openai_base_url)
         if not base.endswith('/v1') and '/v1/' not in base:base+='/v1'
-        r=requests.post(base+'/chat/completions',
-            json={'model':cfg.openai_chat_model,'messages':messages,'stream':False},
-            headers={'Authorization':'Bearer '+cfg.openai_api_key,'Content-Type':'application/json'},
-            timeout=(8,cfg.llm_timeout),allow_redirects=False)
-        r.raise_for_status()
+        r=_model_post(base+'/chat/completions',
+            {'model':cfg.openai_chat_model,'messages':messages,'stream':False},
+            timeout=(8,cfg.llm_timeout),
+            headers={'Authorization':'Bearer '+cfg.openai_api_key,
+                     'Content-Type':'application/json'})
         choices=r.json().get('choices') or []
         content=(choices[0].get('message') or {}).get('content') if choices else None
         if isinstance(content,list):
             content='\n'.join(c.get('text','') for c in content if isinstance(c,dict) and c.get('type')=='text')
     elif cfg.llm_provider=='ollama':
-        r=requests.post(cfg.ollama_url+'/api/chat',
-            json={'model':cfg.ollama_chat_model,'messages':messages,'stream':False,
-                  'options':{'num_ctx':8192,'num_predict':3600}},
-            timeout=(8,cfg.llm_timeout),allow_redirects=False)
-        r.raise_for_status()
+        r=_model_post(cfg.ollama_url+'/api/chat',
+            {'model':cfg.ollama_chat_model,'messages':messages,'stream':False,
+             'options':{'num_ctx':8192,'num_predict':3600}},
+            timeout=(8,cfg.llm_timeout))
         content=(r.json().get('message') or {}).get('content')
     else:return None
     return content.strip()[:50000] if isinstance(content,str) and content.strip() else None
@@ -203,8 +223,15 @@ def register_routes(app,cfg,authorize,retrieve):
         try:
             content=chat(cfg,[{'role':'system','content':RULES},{'role':'user','content':prompt}])
         except (requests.RequestException,ValueError) as exc:
-            log.warning('Draft error %s',type(exc).__name__)
-            raise HTTPException(status_code=502,detail='生成失败，请检查 RAG 日志') from exc
+            # Log only sanitized failure metadata; never log prompts, API keys,
+            # request URLs, provider bodies, or private document content.
+            if isinstance(exc,requests.HTTPError) and exc.response is not None:
+                upstream_status=exc.response.status_code
+                log.warning('Draft model provider HTTP status=%s',upstream_status)
+                raise HTTPException(status_code=502,
+                    detail='文档生成模型上游接口返回 HTTP '+str(upstream_status)) from exc
+            log.warning('Draft model provider failure: %s',type(exc).__name__)
+            raise HTTPException(status_code=502,detail='文档生成模型调用失败，请检查 RAG 日志') from exc
         if not content:raise HTTPException(status_code=502,detail='模型没有返回文档正文')
         return {'content':content,'source_note':note,'used_sources':bool(blocks),'sources':sources}
     @app.post('/v1/revise',dependencies=[Depends(authorize)])
