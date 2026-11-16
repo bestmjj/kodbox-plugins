@@ -418,11 +418,11 @@ var widthTools = $('<div class="alw-width-tools" role="group" aria-label="左右
         lastUndo=null;
         undo.hide();
     }
-    function loadExistingDocument(relative,name,suggestedText) {
+    function loadExistingDocument(relative,name,suggestedText,openForEditing) {
         // Never overwrite unsaved in-browser text without the user's consent.
         if (String(editor.val()||'').trim() &&
             !window.confirm('打开另一篇文章会替换当前编辑区内容（尚未保存的修改会丢失）。确定继续？'))
-            return;
+            return false;
         pickerList.empty().append($('<div class="alw-picker-muted"></div>').text('正在读取原文件……'));
         request('writerRead',{folder:relative,name:name},function (data) {
             if (!data || typeof data.content!=='string' || data.content.length>50000 ||
@@ -455,13 +455,15 @@ var widthTools = $('<div class="alw-width-tools" role="group" aria-label="左右
                 showTab('review');
                 info('AI 修改建议已载入，请先对比前后内容。点击“应用到编辑区”才会更改本地草稿。');
             } else {
-                showTab('preview');
+                showTab(openForEditing?'edit':'preview');
+                if(openForEditing)editor.trigger('focus');
                 info(String(data.note||'已加载原文，请填写“按要求修改文章”。'));
             }
         },function (err) {
             info('打开原文件失败：'+err,true);
             pickerList.empty().append($('<div class="alw-picker-muted"></div>').text('打开失败：'+err));
         });
+        return true;
     }
 
     function closePicker() {
@@ -780,6 +782,23 @@ var widthTools = $('<div class="alw-width-tools" role="group" aria-label="左右
         });
     });
     open.on('click', openSaved);
+
+    // Verified file hand-off from AI chat. The browser-supplied folder/name
+    // are never trusted to grant access: writerRead checks the current KodBox
+    // session again. Unsaved editor changes still require confirmation.
+    window.aiRagLiteOpenWriterFile=function(relative,name){
+        if(typeof relative!=='string' || relative.length>2048 ||
+            typeof name!=='string' || name.length>255 ||
+            !/\.(?:md|markdown|txt|docx)$/i.test(name) ||
+            /(?:^|\/)\.\.?\//.test(relative) ||
+            relative.indexOf('\\')!==-1 || relative.indexOf('\0')!==-1 ||
+            name.indexOf('/')!==-1 || name.indexOf('\\')!==-1)
+            return false;
+        if(!loadExistingDocument(relative,name,null,true))return false;
+        overlay.css('display','flex');
+        setPaneWidth(leftWidth);
+        return true;
+    };
 
     // Explicit hand-off from conversational assistant to the existing editor.
     // No file is written by these entry points.
