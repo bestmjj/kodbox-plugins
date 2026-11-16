@@ -127,7 +127,7 @@ kodReady.push(function () {
     $('<strong>原文件（只读）</strong>').appendTo(reviewBeforePane);
     var reviewBefore=$('<pre id="airaglite-review-before"></pre>').appendTo(reviewBeforePane);
     var reviewAfterPane=$('<section class="aic-review-pane"></section>').appendTo(reviewColumns);
-    $('<strong>AI 建议稿（可编辑）</strong>').appendTo(reviewAfterPane);
+    var reviewAfterHeading=$('<strong>AI 建议稿（可编辑）</strong>').appendTo(reviewAfterPane);
     var reviewAfter=$('<textarea id="airaglite-review-after" maxlength="50000" aria-label="修改后的草稿"></textarea>').appendTo(reviewAfterPane);
     var reviewFoot=$('<div class="aic-review-foot"></div>').appendTo(reviewPanel);
     var reviewStatus=$('<div id="airaglite-review-status" role="status"></div>').appendTo(reviewFoot);
@@ -145,6 +145,7 @@ kodReady.push(function () {
     // Retain only indexed candidate identities in the current in-page conversation.
     // An index result is not permission to read. agentTool revalidates each read.
     var lastLookup=null;
+    var lastViewedFile=null; // most recent unambiguous RAG file, not a write grant
 
     function setStatus(message,error) {
         status.text(String(message||'')).css('color',error?'#b91c1c':'#64748b');
@@ -182,13 +183,15 @@ kodReady.push(function () {
     }
     function reset(message) {
         if (pending) {setStatus('当前请求还没有完成',true);return false;}
-        turns=[];requestId++;lastTopic='';lastLookup=null;
+        turns=[];requestId++;lastTopic='';lastLookup=null;lastViewedFile=null;
+        updateFileLabel();
         welcome();setStatus(message||'新对话已开始。历史消息只保存在当前网页。');
         return true;
     }
     function updateFileLabel() {
         fileLabel.text(attached ? '📄 已关联：'+attached.name+' · '+(attached.folder||'个人空间') :
-            '📄 未关联文件 · 可查询知识库或资产');
+            (lastViewedFile ? '📄 已定位：'+lastViewedFile.name+' · 可在文档编辑中关联' :
+            '📄 未关联文件 · 可查询知识库或资产'));
         detach.toggle(!!attached);
     }
     function scrollBottom() {
@@ -243,7 +246,9 @@ kodReady.push(function () {
         reviewOverwrite.hide();
         reviewLayer.css('display','flex');
         if(p.kind==='revision') {
-            reviewHeading.text('审阅修改：'+String(p.name||'文章'));
+            reviewHeading.text((p.manualEdit?'直接编辑并保存：':'审阅修改：')+
+                String(p.name||'文章'));
+            reviewAfterHeading.text(p.manualEdit?'编辑区（可直接修改）':'AI 建议稿（可编辑）');
             reviewMessage('正在重新读取原文件并校验版本……');
             reviewSaveNew.prop('disabled',true);
             apiRequest('writerRead',{folder:p.folder,name:p.name},function(doc){
@@ -260,13 +265,16 @@ kodReady.push(function () {
                 reviewBefore.text(doc.content);
                 reviewSaveNew.prop('disabled',false);
                 reviewOverwrite.toggle(/\.(md|markdown|txt)$/i.test(p.name));
-                reviewMessage('这里只展示建议稿。另存不会覆盖原文；更新原文必须先备份且再次确认。');
+                reviewMessage(p.manualEdit ?
+                    '右侧可以直接修改全文。“另存为新版本”不会覆盖原文；“先备份，再更新原文”需要再次确认。' :
+                    '这里只展示建议稿。另存不会覆盖原文；更新原文必须先备份且再次确认。');
             },function(err){
                 if(reviewProposal!==p)return;
                 reviewMessage('读取原文件失败：'+err,true);
             });
         }else{
             reviewHeading.text('审阅新文档：'+String(p.title||'AI 草稿'));
+            reviewAfterHeading.text('新文档正文（可编辑）');
             reviewBefore.text('新文档尚不存在，无需修改任何原文件。');
             reviewSaveNew.prop('disabled',false);
             reviewMessage('可以先在右侧编辑内容，再保存为新文件。');
@@ -324,37 +332,101 @@ kodReady.push(function () {
     // Indexed file paths cannot be used as folder arguments. First resolve a
     // candidate under the active KodBox session, then map it back into the
     // *current user's* personal files before allowing an edit proposal.
-    function attachIndexedDocumentForEdit(hit,instruction) {
-        if(pending){setStatus('当前任务尚未结束，请稍后选择文件',true);return;}
-        if(!hit || typeof hit.path!=='string' || !hit.path){setStatus('候选文件路径无效',true);return;}
-        setStatus('正在确认 KodBox 文件权限和个人空间位置……');
-        apiRequest('resolve',{path:hit.path},function(found) {
-            var route=String(found.route||'');
-            if(!safeRoute(route)){setStatus('文件验证返回了无效路径',true);return;}
+    // Convert a verified WebDAV index entry to a *personal-space* KodBox
+    // editor target through two existing access-controlled PHP routes.
+    // An indexed document can be readable but not editable; never guess.
+    function resolveEditableIndexedFile(hit,success,failure) {
+        if(pending){failure('请等当前读取完成后再操作');return;}
+        var path=hit&&typeof hit.path==='string'?hit.path:'';
+        var expected=hit&&typeof hit.name==='string'&&hit.name?
+            hit.name:String(path.split('/').pop());
+        if(!path || path.length>3500 || !expected || expected.length>255 ||
+            !/\.(?:md|markdown|txt|docx)$/i.test(expected)){
+            failure('文件路径或格式不支持编辑');return;
+        }
+        var epoch=requestId;
+        setStatus('正在验证原文件路径及当前账号的编辑权限……');
+        apiRequest('resolve',{path:path},function(found){
+            if(epoch!==requestId)return;
+            var route=String(found&&found.route||'');
+            if(!safeRoute(route)){failure('索引文件返回无效的 KodBox 路径');return;}
             var match=route.match(/^#fileView&path=([^&]+)/);
-            if(!match){setStatus('无法确认原文件位置',true);return;}
-            var verifiedPath;
-            try{verifiedPath=decodeURIComponent(match[1]);}catch(e){setStatus('原文件路径编码无效',true);return;}
-            apiRequest('agentCurrentFile',{path:verifiedPath},function(doc) {
-                var expectedName=String(hit.name||String(hit.path).split('/').pop());
-                if(!doc || typeof doc.folder!=='string' || typeof doc.name!=='string' ||
-                    doc.name!==expectedName) {
-                    setStatus('已验证路径和所选文件不匹配，停止关联',true);return;
+            if(!match){failure('无法确认原文件位置');return;}
+            var actualPath;
+            try{actualPath=decodeURIComponent(match[1]);}
+            catch(e){failure('原文件路径编码无效');return;}
+            apiRequest('agentCurrentFile',{path:actualPath},function(doc){
+                if(epoch!==requestId)return;
+                if(!doc || typeof doc.folder!=='string' ||
+                    typeof doc.name!=='string' || doc.name!==expected){
+                    failure('当前账号的个人空间中无法验证这份文件，请打开原件查看');return;
+                }
+                success({folder:doc.folder,name:doc.name});
+            },function(err){
+                if(epoch!==requestId)return;
+                failure('无法关联为可编辑的个人文档：'+String(err).slice(0,200));
+            });
+        },function(err){
+            if(epoch!==requestId)return;
+            failure('无法验证索引原文件：'+String(err).slice(0,200));
+        });
+    }
+    function editIndexedInAssistant(hit) {
+        var epoch=requestId;
+        resolveEditableIndexedFile(hit,function(doc){
+            if(epoch!==requestId)return;
+            setStatus('正在读取完整原文并校验版本……');
+            apiRequest('writerRead',{folder:doc.folder,name:doc.name},function(data){
+                if(epoch!==requestId)return;
+                if(!data || typeof data.content!=='string' || !data.content.trim() ||
+                    data.content.length>50000 || !/^[a-f0-9]{64}$/.test(String(data.hash||'')) ||
+                    data.name!==doc.name){
+                    setStatus('原文不适合直接编辑，请使用文档编辑器或打开原文件',true);
+                    return;
                 }
                 attached={folder:doc.folder,name:doc.name};
-                lastLookup=null;turns=[];
                 updateFileLabel();
-                addTurn('assistant','已关联 '+doc.name+'。请说明希望如何修改，例如“精简第二部分并保留操作步骤”。' +
-                    ' AI 将先提供修改稿供审阅，不会直接覆盖原文。');
-                // Reuse specific instructions, but never turn an ambiguous
-                // "I want to edit this" into an arbitrary unsolicited rewrite.
-                var vague=/^(?:我想|我要|帮我|请帮我|请|想)?(?:编辑|修改|润色)(?:一下|这篇|这个|我的)?[^，。；;]{0,25}(?:文章|文档|文件|笔记|流程|手册)?[。！!？?]*$/.test(String(instruction||'').trim());
-                input.val(vague?'':String(instruction||'').trim().slice(0,1800)).trigger('focus');
-                setStatus('已验证并关联文件，请输入或确认修改要求');
-            },function(err){
-                setStatus('当前文件无法关联为可编辑个人文档：'+String(err).slice(0,180),true);
-            });
-        },function(err){setStatus('无法验证索引原文件：'+String(err).slice(0,180),true);});
+                showProposalReview({kind:'revision',manualEdit:true,
+                    folder:doc.folder,name:doc.name,format:data.format,
+                    hash:data.hash,content:data.content});
+            },function(err){if(epoch===requestId)
+                setStatus('读取可编辑正文失败：'+String(err).slice(0,200),true);});
+        },function(err){if(epoch===requestId)setStatus(err,true);});
+    }
+    function openVerifiedWriter(doc) {
+        if(typeof window.aiRagLiteOpenWriterFile!=='function'){
+            setStatus('文档编辑器版本过旧，请更新 writer.js 后重试',true);return;
+        }
+        if(window.aiRagLiteOpenWriterFile(doc.folder,doc.name)!==true){
+            setStatus('文档编辑器未打开；请检查是否取消了未保存内容的替换',true);
+            return;
+        }
+        attached={folder:doc.folder,name:doc.name};
+        updateFileLabel();
+        layer.hide();
+        setStatus('已关联并打开《'+doc.name+'》，请在文档编辑器中编辑并保存');
+    }
+    function openIndexedInWriter(hit){
+        var epoch=requestId;
+        resolveEditableIndexedFile(hit,function(doc){
+            if(epoch===requestId)openVerifiedWriter(doc);
+        },function(err){if(epoch===requestId)setStatus(err,true);});
+    }
+    function attachIndexedDocumentForEdit(hit,instruction) {
+        if(pending){setStatus('当前任务尚未结束，请稍后选择文件',true);return;}
+        var epoch=requestId;
+        resolveEditableIndexedFile(hit,function(doc){
+            if(epoch!==requestId)return;
+            attached={folder:doc.folder,name:doc.name};
+            lastViewedFile={path:hit.path,name:doc.name};
+            turns=[];
+            updateFileLabel();
+            addTurn('assistant','已关联 '+doc.name+'。请说明希望如何修改，例如“精简第二部分并保留操作步骤”。'+
+                ' AI 将先提供修改稿供审阅，不会直接覆盖原文。');
+            var vague=/^(?:我想|我要|帮我|请帮我|请|想)?(?:编辑|修改|润色)(?:一下|这篇|这个|我的)?[^，。；;]{0,25}(?:文章|文档|文件|笔记|流程|手册)?[。！!？?]*$/.test(String(instruction||'').trim());
+            input.val(vague?'':String(instruction||'').trim().slice(0,1800)).trigger('focus');
+            setStatus('已验证并关联文件，请输入或确认修改要求');
+        },function(err){if(epoch===requestId)setStatus(err,true);});
     }
 
     // Short file-title lookups should reuse the existing RAG index directly.
@@ -450,7 +522,17 @@ kodReady.push(function () {
             $('<button type="button" class="aic-action"></button>')
                 .text('打开 KodBox 原文件').appendTo(row)
                 .on('click',function(){openSource(hit);});
+            if(/\.(?:md|markdown|txt|docx)$/i.test(name)){
+                $('<button type="button" class="aic-action aic-inline-edit"></button>')
+                    .text('直接编辑并保存').appendTo(row)
+                    .on('click',function(){editIndexedInAssistant({path:path,name:name});});
+                $('<button type="button" class="aic-action aic-open-writer"></button>')
+                    .text('在文档编辑器中编辑').appendTo(row)
+                    .on('click',function(){openIndexedInWriter({path:path,name:name});});
+            }
             lastLookup=[{path:path,name:name}];
+            lastViewedFile={path:path,name:name};
+            updateFileLabel();
             turns.push({role:'user',content:q});
             turns.push({role:'assistant',content:String(answer).slice(0,1800)});
             if(turns.length>16)turns=turns.slice(-16);
@@ -601,7 +683,11 @@ kodReady.push(function () {
             return;
         }
         // A new unrelated query must not accidentally use stale document paths.
-        if(!isIndexedContentFollowUp(question))lastLookup=null;
+        if(!isIndexedContentFollowUp(question)) {
+            lastLookup=null;
+            lastViewedFile=null;
+            updateFileLabel();
+        }
         if(messages.find('.aic-welcome').length)messages.empty();
         var history=turns.slice(-6).map(function(x){
             return {role:x.role,content:x.content.slice(0,1800)};
@@ -641,6 +727,9 @@ kodReady.push(function () {
                     return hit && typeof hit.path==='string' && !!hit.path &&
                         typeof hit.name==='string' && !!hit.name;
                 }).slice(0,8);
+                lastViewedFile=lastLookup.length===1 ?
+                    {path:lastLookup[0].path,name:lastLookup[0].name}:null;
+                updateFileLabel();
             }
             if(extra)attachResult(row,extra);
             if(audit.length){
@@ -986,14 +1075,26 @@ kodReady.push(function () {
     chooseFile.on('click',showPicker);
     detach.on('click',function(){
         if(pending){setStatus('当前请求尚未完成，不能取消关联',true);return;}
-        attached=null;lastLookup=null;updateFileLabel();reset('已取消文件关联。');
+        attached=null;lastLookup=null;lastViewedFile=null;
+        updateFileLabel();reset('已取消文件关联。');
     });
     searchTool.on('click',function(){
         layer.hide();
         if(typeof window.aiRagLiteOpenSearch==='function')window.aiRagLiteOpenSearch();
     });
     writingTool.on('click',function(){
-        if(!$('#airaglite-writer-open').length){setStatus('文档编辑器尚未就绪',true);return;}
+        if(pending){setStatus('请先等当前读取或工具调用结束',true);return;}
+        if(attached){openVerifiedWriter(attached);return;}
+        var hit=lastViewedFile;
+        if(!hit && Array.isArray(lastLookup) && lastLookup.length===1)
+            hit=lastLookup[0];
+        if(hit){openIndexedInWriter(hit);return;}
+        if(Array.isArray(lastLookup) && lastLookup.length>1){
+            setStatus('搜索到多个文件，请先选择具体文件再编辑',true);return;
+        }
+        if(!$('#airaglite-writer-open').length){
+            setStatus('文档编辑器尚未就绪',true);return;
+        }
         layer.hide();
         $('#airaglite-writer-open').trigger('click');
     });
