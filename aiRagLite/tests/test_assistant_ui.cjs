@@ -21,6 +21,11 @@ win.aiRagLiteOpenSearch=()=>{win._searchOpened=true;};
 let opened=null;
 win.aiRagLiteOpenWriterRevision=(folder,name,content)=>{opened={kind:'revision',folder,name,content};};
 win.aiRagLiteOpenWriterDraft=(title,content)=>{opened={kind:'new',title,content};};
+let writerOpenedFile=null;
+win.aiRagLiteOpenWriterFile=(folder,name)=>{
+    writerOpenedFile={folder,name};
+    return true;
+};
 const calls=[];
 let failed=false;
 let failedTool=false;
@@ -35,8 +40,11 @@ win.kodApi={requestSend:function(route,payload,callback){
         if(!Object.hasOwn(dirs,payload.folder))throw Error('unexpected browse '+payload.folder);
         callback({code:true,data:dirs[payload.folder]});
     }else if(route.endsWith('/writerRead')){
+        const clip=payload.name==='萌宠短视频流程.md';
         callback({code:true,data:{name:payload.name,folder:payload.folder,
-            title:'2026年费用',content:'# 2026年费用',hash:'a'.repeat(64)}});
+            title:clip?'萌宠短视频流程':'2026年费用',
+            content:clip?'# 短视频制作流程\n第一步：写剧本\n第二步：准备素材' :
+                '# 2026年费用',format:'md',hash:'a'.repeat(64)}});
     }else if(route.endsWith('/agentStep')){
         if(failed){callback({code:false,data:'模拟请求失败'});return;}
         if(payload.message==='封装层测试'){
@@ -394,6 +402,47 @@ assert.equal(calls.filter(x=>x.route.endsWith('/agentTool') &&
     x.payload.tool==='read_document').length,beforeExactRead+2,
     'content follow-ups must use authorized original document reads');
 assert.match($('.aic-raw-document').last().text(),/第一步：写剧本/);
+
+// Once the real indexed text is shown, the user may edit and save directly
+// in the assistant. The app must resolve to a personal file, read the full
+// current content (not the 5500-character RAG excerpt), then show approval.
+const inlineEditButton=$('.aic-inline-edit').last();
+assert.ok(inlineEditButton.length,'the indexed file read offers in-chat editing');
+const beforeInlineSaves=calls.filter(x=>/\/(saveDraft|writerOverwrite)$/.test(x.route)).length;
+inlineEditButton.trigger('click');
+assert.match(one('#airaglite-chat-file').text(),/萌宠短视频流程.md/,
+    'edit target auto associated once verified');
+assert.equal(one('#airaglite-agent-review').css('display'),'flex');
+assert.match(one('#airaglite-review-after').val(),/第一步：写剧本/);
+assert.match(one('#airaglite-review-before').text(),/第二步：准备素材/);
+assert.equal(calls.filter(x=>/\/(saveDraft|writerOverwrite)$/.test(x.route)).length,
+    beforeInlineSaves,'opening editor does not write to storage');
+one('#airaglite-review-after').val('# 短视频制作流程\n第一步：调整剧本');
+one('#airaglite-review-overwrite').trigger('click');
+const inlineUpdate=calls.filter(x=>x.route.endsWith('/writerOverwrite')).at(-1);
+assert.equal(inlineUpdate.payload.folder,'学习/短视频');
+assert.equal(inlineUpdate.payload.name,'萌宠短视频流程.md');
+assert.equal(inlineUpdate.payload.hash,'a'.repeat(64));
+assert.equal(inlineUpdate.payload.confirm,'backup-and-overwrite');
+assert.match(inlineUpdate.payload.content,/调整剧本/);
+assert.equal(one('#airaglite-agent-review').css('display'),'none');
+
+// Start a separate read conversation to verify header "文档编辑" transfers
+// the latest indexed document, not an empty editor.
+one('#airaglite-chat-detach').trigger('click');
+input.val('短视频');send.trigger('click');
+input.val('看看里面的内容');send.trigger('click');
+assert.match(one('#airaglite-chat-file').text(),/已定位.*萌宠短视频流程.md/);
+const headerResolveBefore=calls.filter(x=>x.route.endsWith('/resolve')).length;
+$('.aic-tools button').filter(function(){return $(this).text()==='文档编辑';}).trigger('click');
+assert.ok(calls.filter(x=>x.route.endsWith('/resolve')).length>headerResolveBefore,
+    'header must resolve indexed file under current KodBox login');
+assert.deepEqual(writerOpenedFile,{folder:'学习/短视频',name:'萌宠短视频流程.md'},
+    'writer opens the verified source instead of a blank editor');
+assert.equal(one('#airaglite-assistant-layer').css('display'),'none');
+assert.match(one('#airaglite-chat-file').text(),/已关联.*萌宠短视频流程.md/);
+win.aiRagLiteOpenAssistant();
+one('#airaglite-chat-detach').trigger('click');
 
 // If search finds multiple candidates, require an explicit file choice.
 input.val('查找费用文档');send.trigger('click');
