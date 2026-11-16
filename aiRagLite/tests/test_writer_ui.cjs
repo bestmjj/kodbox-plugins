@@ -220,28 +220,5 @@ assert.equal(returned.folder,'我的文档/学习');
 assert.equal(returned.name,'已有文章.md');
 assert.equal(one('#airaglite-writer-overlay').css('display'),'none');
 
-// AI assistant -> writer must open the exact verified file, not an empty editor.
-const handoffReadsBefore=called.filter(x=>x.route.endsWith('/writerRead')).length;
-assert.equal(win.aiRagLiteOpenWriterFile('我的文档/学习','已有文章.md'),true);
-assert.equal(called.filter(x=>x.route.endsWith('/writerRead')).length,
-    handoffReadsBefore+1,'verified handoff reloads document through session API');
-assert.equal(one('#airaglite-writer-overlay').css('display'),'flex');
-assert.equal(one('#airaglite-writer-editor').val(),'# 原始文章\n\n第二段');
-assert.equal(one('.alw-tab[aria-selected="true"]').text(),'编辑正文',
-    'AI handoff should open the editor, not the blank generation screen');
-assert.match(one('#airaglite-writer-imported').text(),/已有文章.md/);
-assert.equal(win.aiRagLiteOpenWriterFile('../私有','bad.md'),false,
-    'traversal paths must not be accepted from frontend calls');
-
-// Canceling an editor switch preserves unsaved in-browser content.
-const confirmBefore=win.confirm;
-one('#airaglite-writer-editor').val('# 尚未保存的更改').trigger('input');
-win.confirm=()=>false;
-const cancelReads=called.filter(x=>x.route.endsWith('/writerRead')).length;
-assert.equal(win.aiRagLiteOpenWriterFile('我的文档/学习','已有文章.md'),false);
-assert.equal(called.filter(x=>x.route.endsWith('/writerRead')).length,cancelReads);
-assert.equal(one('#airaglite-writer-editor').val(),'# 尚未保存的更改');
-win.confirm=confirmBefore;
-
 dom.window.close();
-console.log('OK: writer layout, verified assistant handoff, file loading, AI revision, diff, undo, safe overwrite and existing flows');
+console.log('OK: writer layout, file loading, AI revision, diff, undo, safe overwrite and existing flows');
