@@ -129,7 +129,7 @@ win.kodApi={requestSend:function(route,payload,callback){
                 {name:'2026年费用.md',
                  path:'与我协作/用户[admin]/我的文档/财务/2026年费用.md',
                  location:'第 1 行',snippet:'# 2026年费用'}
-            ]:args.query==='费用'?[
+            ]:(args.query==='费用'||args.query==='查找费用文档')?[
                 {name:'2026年费用.md',
                  path:'与我协作/用户[admin]/我的文档/财务/2026年费用.md'},
                 {name:'2026年费用.md',
@@ -145,8 +145,11 @@ win.kodApi={requestSend:function(route,payload,callback){
         }else if(payload.tool==='read_document'){
             if(!args.indexed_path)
                 throw Error('Missing indexed_path for resolved RAG file read');
-            callback({code:true,data:{name:args.name,content:'# 2026年费用',
-                source_verified:true,truncated:false,total_chars:10}});
+            const content=args.name==='萌宠短视频流程.md'?
+                '# 短视频制作流程\n第一步：写剧本\n第二步：准备素材' :
+                '# 2026年费用\n服务器费用 30 元';
+            callback({code:true,data:{name:args.name,content,
+                source_verified:true,truncated:false,total_chars:content.length}});
         }else if(payload.tool==='search_knowledge'){
             callback({code:true,data:{results:[
                 {name:'a.md',path:'与我协作/用户[admin]/我的文档/a.md',
@@ -328,6 +331,69 @@ assert.match(sourceButton.text(),/萌宠短视频流程.md/);
 sourceButton.trigger('click');
 assert.ok(calls.some(x=>x.route.endsWith('/resolve') &&
     x.payload.path.includes('萌宠短视频流程.md')),'open source checks KodBox permissions');
+
+// Multi-turn file follow-ups reuse the exact indexed candidate instead of
+// repeatedly searching the RAG index or trusting the short search snippet.
+const beforeFileFollowUpSearch=calls.filter(x=>x.route.endsWith('/agentTool') &&
+    x.payload.tool==='find_files').length;
+const beforeFileFollowUpRead=calls.filter(x=>x.route.endsWith('/agentTool') &&
+    x.payload.tool==='read_document').length;
+const beforeFileFollowUpModel=calls.filter(x=>x.route.endsWith('/agentStep')).length;
+input.val('看看里面的内容');send.trigger('click');
+const afterFileRead=calls.filter(x=>x.route.endsWith('/agentTool') &&
+    x.payload.tool==='read_document');
+assert.equal(afterFileRead.length,beforeFileFollowUpRead+1,
+    'follow-up must read real file content');
+assert.deepEqual(JSON.parse(afterFileRead.at(-1).payload.arguments_json),{
+    folder:'',name:'萌宠短视频流程.md',
+    indexed_path:'与我协作/用户[admin]/我的文档/学习/短视频/萌宠短视频流程.md'
+});
+assert.equal(calls.filter(x=>x.route.endsWith('/agentTool') &&
+    x.payload.tool==='find_files').length,beforeFileFollowUpSearch,
+    'file follow-up must not search the same title again');
+assert.equal(calls.filter(x=>x.route.endsWith('/agentStep')).length,
+    beforeFileFollowUpModel,'raw read needs no new model call');
+assert.match($('.aic-raw-document').last().text(),/第一步：写剧本/);
+assert.match($('.aic-raw-document').last().text(),/第二步：准备素材/);
+input.val('把里面的内容输出');send.trigger('click');
+assert.equal(calls.filter(x=>x.route.endsWith('/agentTool') &&
+    x.payload.tool==='find_files').length,beforeFileFollowUpSearch,
+    'second follow-up still refers to same document');
+assert.match($('.aic-raw-document').last().text(),/短视频制作流程/);
+
+// Summarization explicitly uses the model with a verified read observation,
+// rather than claiming the RAG snippet is the document body.
+input.val('请总结里面的内容');send.trigger('click');
+const summarizeStep=calls.filter(x=>x.route.endsWith('/agentStep')).at(-1);
+assert.equal(summarizeStep.payload.force_final,'1');
+const observationsForSummary=JSON.parse(summarizeStep.payload.observations_json);
+assert.equal(observationsForSummary[0].tool,'read_document');
+assert.match(observationsForSummary[0].result,/第二步：准备素材/);
+
+// If search finds multiple candidates, require an explicit file choice.
+input.val('查找费用文档');send.trigger('click');
+const beforeAmbiguousRead=calls.filter(x=>x.route.endsWith('/agentTool') &&
+    x.payload.tool==='read_document').length;
+input.val('看看里面的内容');send.trigger('click');
+assert.equal(calls.filter(x=>x.route.endsWith('/agentTool') &&
+    x.payload.tool==='read_document').length,beforeAmbiguousRead,
+    'never guess which same-name document is intended');
+assert.match(one('#airaglite-chat-messages').text(),/找到多个候选文件/);
+const chooseSecond=$('.aic-read-indexed').last();
+chooseSecond.trigger('click');
+const chosen=calls.filter(x=>x.route.endsWith('/agentTool') &&
+    x.payload.tool==='read_document').at(-1);
+assert.equal(JSON.parse(chosen.payload.arguments_json).indexed_path,
+    '与我协作/用户[admin]/我的文档/旧版/2026年费用.md',
+    'chosen candidate path must be passed through permission checked read');
+
+// Permission errors must never fall back to unverified snippets.
+const beforeDeniedModel=calls.filter(x=>x.route.endsWith('/agentStep')).length;
+failedTool=true;
+input.val('再看看里面的内容');send.trigger('click');
+assert.match(one('#airaglite-chat-status').text(),/文件读取失败/);
+assert.equal(calls.filter(x=>x.route.endsWith('/agentStep')).length,beforeDeniedModel);
+failedTool=false;
 
 one('#airaglite-chat-attach').trigger('click');
 assert.equal(one('#airaglite-chat-picker').css('display'),'flex');
