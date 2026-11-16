@@ -14,18 +14,17 @@ win.confirm=()=>true;
 let openedSource=null;
 win.open=()=>({closed:false,location:{replace:function(url){openedSource=url;}},close:function(){}});
 win.kodReady=[];
-win.aiRagLiteRenderMarkdown=(node,md)=>{node.textContent=md;};
+const markdownPreviews=[];
+win.aiRagLiteRenderMarkdown=(node,md)=>{
+    if(node.classList.contains('aic-markdown-preview'))markdownPreviews.push(md);
+    node.textContent=md;
+};
 let activeSources=[];
 win.aiRagLiteSetCitationSources=(sources)=>{activeSources=sources;};
 win.aiRagLiteOpenSearch=()=>{win._searchOpened=true;};
 let opened=null;
 win.aiRagLiteOpenWriterRevision=(folder,name,content)=>{opened={kind:'revision',folder,name,content};};
 win.aiRagLiteOpenWriterDraft=(title,content)=>{opened={kind:'new',title,content};};
-let writerOpenedFile=null;
-win.aiRagLiteOpenWriterFile=(folder,name)=>{
-    writerOpenedFile={folder,name};
-    return true;
-};
 const calls=[];
 let failed=false;
 let failedTool=false;
@@ -40,11 +39,8 @@ win.kodApi={requestSend:function(route,payload,callback){
         if(!Object.hasOwn(dirs,payload.folder))throw Error('unexpected browse '+payload.folder);
         callback({code:true,data:dirs[payload.folder]});
     }else if(route.endsWith('/writerRead')){
-        const clip=payload.name==='萌宠短视频流程.md';
         callback({code:true,data:{name:payload.name,folder:payload.folder,
-            title:clip?'萌宠短视频流程':'2026年费用',
-            content:clip?'# 短视频制作流程\n第一步：写剧本\n第二步：准备素材' :
-                '# 2026年费用',format:'md',hash:'a'.repeat(64)}});
+            title:'2026年费用',content:'# 2026年费用',hash:'a'.repeat(64)}});
     }else if(route.endsWith('/agentStep')){
         if(failed){callback({code:false,data:'模拟请求失败'});return;}
         if(payload.message==='封装层测试'){
@@ -307,21 +303,10 @@ const editStepsBefore=calls.filter(x=>x.route.endsWith('/agentStep')).length;
 input.val('我要编辑短视频文章');send.trigger('click');
 assert.equal(calls.filter(x=>x.route.endsWith('/agentStep')).length,editStepsBefore+1,
     'edit intent is routed through the language model');
-const editCandidate=$('.aic-action').filter(function(){
+assert.match(one('#airaglite-chat-messages').text(),/KodBox 原文件/);
+assert.equal($('.aic-action').filter(function(){
     return $(this).text()==='关联并用 AI 编辑';
-}).last();
-assert.ok(editCandidate.length,'agent file discovery provides a verified-edit action');
-assert.match(one('#airaglite-chat-messages').text(),/请选择你要编辑的文章/);
-editCandidate.trigger('click');
-assert.ok(calls.some(x=>x.route.endsWith('/resolve') &&
-    x.payload.path.includes('萌宠短视频流程.md')),
-    'candidate is resolved under KodBox session before attaching');
-assert.ok(calls.some(x=>x.route.endsWith('/agentCurrentFile') &&
-    x.payload.path.includes('source:777')),
-    'verified source must map to an authorized personal document');
-assert.match(one('#airaglite-chat-file').text(),/萌宠短视频流程.md/);
-assert.equal(input.val(),'','vague edit request must not trigger an arbitrary rewrite');
-assert.match(one('#airaglite-chat-status').text(),/已验证并关联文件/);
+}).length,0,'file search must not offer the redundant AI editor workflow');
 one('#airaglite-chat-detach').trigger('click');
 
 // Short file names should bypass blind directory wandering and use RAG
@@ -366,13 +351,22 @@ assert.equal(calls.filter(x=>x.route.endsWith('/agentTool') &&
     'file follow-up must not search the same title again');
 assert.equal(calls.filter(x=>x.route.endsWith('/agentStep')).length,
     beforeFileFollowUpModel,'raw read needs no new model call');
-assert.match($('.aic-raw-document').last().text(),/第一步：写剧本/);
-assert.match($('.aic-raw-document').last().text(),/第二步：准备素材/);
+assert.equal($('.aic-raw-document').length,0,'Markdown should no longer appear as raw preformatted text');
+assert.match($('.aic-markdown-preview').last().text(),/第一步：写剧本/);
+assert.match($('.aic-markdown-preview').last().text(),/第二步：准备素材/);
+assert.ok(markdownPreviews.some(markdown=>markdown.includes('# 短视频制作流程')),
+    'the shared safe Markdown renderer receives the authorized original content');
+assert.ok($('.aic-document-preview').length>=1);
+assert.equal($('.aic-inline-edit,.aic-open-writer').length,0,
+    'no extra assistant edit/save buttons');
+assert.ok($('.aic-action').filter(function(){
+    return $(this).text()==='打开 KodBox 原文件';
+}).length>0,'keep single click into source file for editing in KodBox');
 input.val('把里面的内容输出');send.trigger('click');
 assert.equal(calls.filter(x=>x.route.endsWith('/agentTool') &&
     x.payload.tool==='find_files').length,beforeFileFollowUpSearch,
     'second follow-up still refers to same document');
-assert.match($('.aic-raw-document').last().text(),/短视频制作流程/);
+assert.match($('.aic-markdown-preview').last().text(),/短视频制作流程/);
 
 // Summarization explicitly uses the model with a verified read observation,
 // rather than claiming the RAG snippet is the document body.
@@ -401,48 +395,7 @@ assert.equal(calls.filter(x=>x.route.endsWith('/agentTool') &&
 assert.equal(calls.filter(x=>x.route.endsWith('/agentTool') &&
     x.payload.tool==='read_document').length,beforeExactRead+2,
     'content follow-ups must use authorized original document reads');
-assert.match($('.aic-raw-document').last().text(),/第一步：写剧本/);
-
-// Once the real indexed text is shown, the user may edit and save directly
-// in the assistant. The app must resolve to a personal file, read the full
-// current content (not the 5500-character RAG excerpt), then show approval.
-const inlineEditButton=$('.aic-inline-edit').last();
-assert.ok(inlineEditButton.length,'the indexed file read offers in-chat editing');
-const beforeInlineSaves=calls.filter(x=>/\/(saveDraft|writerOverwrite)$/.test(x.route)).length;
-inlineEditButton.trigger('click');
-assert.match(one('#airaglite-chat-file').text(),/萌宠短视频流程.md/,
-    'edit target auto associated once verified');
-assert.equal(one('#airaglite-agent-review').css('display'),'flex');
-assert.match(one('#airaglite-review-after').val(),/第一步：写剧本/);
-assert.match(one('#airaglite-review-before').text(),/第二步：准备素材/);
-assert.equal(calls.filter(x=>/\/(saveDraft|writerOverwrite)$/.test(x.route)).length,
-    beforeInlineSaves,'opening editor does not write to storage');
-one('#airaglite-review-after').val('# 短视频制作流程\n第一步：调整剧本');
-one('#airaglite-review-overwrite').trigger('click');
-const inlineUpdate=calls.filter(x=>x.route.endsWith('/writerOverwrite')).at(-1);
-assert.equal(inlineUpdate.payload.folder,'学习/短视频');
-assert.equal(inlineUpdate.payload.name,'萌宠短视频流程.md');
-assert.equal(inlineUpdate.payload.hash,'a'.repeat(64));
-assert.equal(inlineUpdate.payload.confirm,'backup-and-overwrite');
-assert.match(inlineUpdate.payload.content,/调整剧本/);
-assert.equal(one('#airaglite-agent-review').css('display'),'none');
-
-// Start a separate read conversation to verify header "文档编辑" transfers
-// the latest indexed document, not an empty editor.
-one('#airaglite-chat-detach').trigger('click');
-input.val('短视频');send.trigger('click');
-input.val('看看里面的内容');send.trigger('click');
-assert.match(one('#airaglite-chat-file').text(),/已定位.*萌宠短视频流程.md/);
-const headerResolveBefore=calls.filter(x=>x.route.endsWith('/resolve')).length;
-$('.aic-tools button').filter(function(){return $(this).text()==='文档编辑';}).trigger('click');
-assert.ok(calls.filter(x=>x.route.endsWith('/resolve')).length>headerResolveBefore,
-    'header must resolve indexed file under current KodBox login');
-assert.deepEqual(writerOpenedFile,{folder:'学习/短视频',name:'萌宠短视频流程.md'},
-    'writer opens the verified source instead of a blank editor');
-assert.equal(one('#airaglite-assistant-layer').css('display'),'none');
-assert.match(one('#airaglite-chat-file').text(),/已关联.*萌宠短视频流程.md/);
-win.aiRagLiteOpenAssistant();
-one('#airaglite-chat-detach').trigger('click');
+assert.match($('.aic-markdown-preview').last().text(),/第一步：写剧本/);
 
 // If search finds multiple candidates, require an explicit file choice.
 input.val('查找费用文档');send.trigger('click');
