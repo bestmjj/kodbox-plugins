@@ -53,6 +53,11 @@ win.kodApi={requestSend:function(route,payload,callback){
             callback({code:true,data:{kind:'tool',tool:'list_folder',
                 arguments:{folder:'国内外要闻'}}});return;
         }
+        if(payload.message==='短视频'){
+            callback({code:true,data:{kind:'tool',tool:'find_files',
+                arguments:{query:'短视频'}}});
+            return;
+        }
         if(payload.message==='资阳联系人'){
             callback({code:true,data:{kind:'tool',tool:'find_files',
                 arguments:{query:'资阳联系人',limit:12,search_mode:'index',path:''}}});
@@ -370,6 +375,26 @@ const observationsForSummary=JSON.parse(summarizeStep.payload.observations_json)
 assert.equal(observationsForSummary[0].tool,'read_document');
 assert.match(observationsForSummary[0].result,/第二步：准备素材/);
 
+// Exact screenshot scenario: "短视频" -> "看看里面的内容" ->
+// "把里面的内容输出", with a model-selected initial file search.
+const beforeExactFind=calls.filter(x=>x.route.endsWith('/agentTool') &&
+    x.payload.tool==='find_files').length;
+input.val('短视频');send.trigger('click');
+assert.equal(calls.filter(x=>x.route.endsWith('/agentTool') &&
+    x.payload.tool==='find_files').length,beforeExactFind+1,
+    'short topic may be selected for RAG search by the model');
+const beforeExactRead=calls.filter(x=>x.route.endsWith('/agentTool') &&
+    x.payload.tool==='read_document').length;
+input.val('看看里面的内容');send.trigger('click');
+input.val('把里面的内容输出');send.trigger('click');
+assert.equal(calls.filter(x=>x.route.endsWith('/agentTool') &&
+    x.payload.tool==='find_files').length,beforeExactFind+1,
+    'the two content follow-ups must not repeat RAG search');
+assert.equal(calls.filter(x=>x.route.endsWith('/agentTool') &&
+    x.payload.tool==='read_document').length,beforeExactRead+2,
+    'content follow-ups must use authorized original document reads');
+assert.match($('.aic-raw-document').last().text(),/第一步：写剧本/);
+
 // If search finds multiple candidates, require an explicit file choice.
 input.val('查找费用文档');send.trigger('click');
 const beforeAmbiguousRead=calls.filter(x=>x.route.endsWith('/agentTool') &&
@@ -394,6 +419,16 @@ input.val('再看看里面的内容');send.trigger('click');
 assert.match(one('#airaglite-chat-status').text(),/文件读取失败/);
 assert.equal(calls.filter(x=>x.route.endsWith('/agentStep')).length,beforeDeniedModel);
 failedTool=false;
+
+// A new chat must forget earlier file candidates rather than read stale
+// private material when the new user has not explicitly selected a file.
+one('#airaglite-chat-reset').trigger('click');
+const readBeforeResetFollowup=calls.filter(x=>x.route.endsWith('/agentTool') &&
+    x.payload.tool==='read_document').length;
+input.val('看看里面的内容');send.trigger('click');
+assert.equal(calls.filter(x=>x.route.endsWith('/agentTool') &&
+    x.payload.tool==='read_document').length,readBeforeResetFollowup,
+    'new chat must not reuse an indexed file selected in a previous conversation');
 
 one('#airaglite-chat-attach').trigger('click');
 assert.equal(one('#airaglite-chat-picker').css('display'),'flex');
